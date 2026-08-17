@@ -369,6 +369,17 @@
     [1, -1]
   ];
 
+  // 规则模式：renju = AI 考虑禁手；free = AI 不考虑禁手。
+  let MODE = "renju";
+
+  function setMode(mode) {
+    MODE = mode === "free" ? "free" : "renju";
+  }
+
+  function getMode() {
+    return MODE;
+  }
+
   function other(mark) {
     return mark === BLACK ? WHITE : BLACK;
   }
@@ -428,7 +439,7 @@
     if (board[index] !== EMPTY) return false;
     board[index] = mark;
     let win = false;
-    if (mark === WHITE) {
+    if (MODE === "free" || mark === WHITE) {
       win = Boolean(winAt(board, index));
     } else {
       // 黑棋只有恰好五连算胜；六连及以上是长连禁手，不是胜利。
@@ -536,6 +547,12 @@
     if (board[index] !== EMPTY) {
       return { legal: false, win: false, forbidden: false, reason: "occupied" };
     }
+    if (MODE === "free") {
+      board[index] = mark;
+      const win = Boolean(winAt(board, index));
+      board[index] = EMPTY;
+      return { legal: true, win, forbidden: false, reason: win ? "five" : "" };
+    }
     if (mark === WHITE) {
       board[index] = WHITE;
       const win = Boolean(winAt(board, index));
@@ -596,6 +613,8 @@
     BLACK,
     WHITE,
     DIRECTIONS,
+    setMode,
+    getMode,
     other,
     onBoard,
     indexOf,
@@ -2209,6 +2228,10 @@
   }
 })();
 
+/* PR 版 AI 禁手开关：false 时 AI 不考虑禁手，按自由规则进攻。 */
+const AI_CONSIDER_FORBIDDEN = true;
+window.GomokuRules.setMode(AI_CONSIDER_FORBIDDEN ? "renju" : "free");
+
 /* 补充公开接口：供朋友后续接玩家侧禁手规则。 */
 
 (function () {
@@ -2218,6 +2241,8 @@
   window.GomokuCore = Object.freeze(Object.assign({}, base, {
     inspectMove: window.GomokuRules.inspectMove,
     isMoveLegal: window.GomokuRules.isMoveLegal,
+    setAiRenju: function (enabled) { window.GomokuRules.setMode(enabled ? "renju" : "free"); },
+    getAiRenju: function () { return window.GomokuRules.getMode() === "renju"; },
     bestMoveInfo: function (board, mark, level, options) {
       return window.GomokuAi.bestMove(board, mark, level || "hard", options);
     }

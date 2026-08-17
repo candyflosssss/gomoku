@@ -54,7 +54,23 @@ const at = (row, col) => row * SIZE + col;
   assert.notEqual(move, center, "hard AI should avoid a forbidden move");
 }
 
-// 4. 公开 winAt 仍保持自由规则：黑棋六连在 UI 判定中仍算胜。
+// 4. AI 禁手开关：关闭后黑棋三三禁手点对 AI 视为合法。
+{
+  const board = empty();
+  board[at(7, 6)] = BLACK;
+  board[at(7, 8)] = BLACK;
+  board[at(6, 7)] = BLACK;
+  board[at(8, 7)] = BLACK;
+  const center = at(7, 7);
+  core.setAiRenju(false);
+  assert.equal(core.getAiRenju(), false);
+  assert.equal(core.inspectMove(board, center, BLACK).legal, true);
+  core.setAiRenju(true);
+  assert.equal(core.getAiRenju(), true);
+  assert.equal(core.inspectMove(board, center, BLACK).legal, false);
+}
+
+// 5. 公开 winAt 仍保持自由规则：黑棋六连在 UI 判定中仍算胜。
 {
   const board = empty();
   for (let col = 0; col < 6; col += 1) board[at(7, col)] = BLACK;
@@ -62,7 +78,7 @@ const at = (row, col) => row * SIZE + col;
   assert.ok(line && line.length >= 5, "public winAt should keep free-rule six-in-a-row win");
 }
 
-// 5. hard 性能上限：复杂中盘局面单步不超过 2200ms。
+// 6. hard 性能上限：复杂中盘局面单步不超过 2200ms。
 {
   const board = empty();
   board[at(7, 7)] = BLACK;
