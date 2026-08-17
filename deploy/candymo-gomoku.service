@@ -1,0 +1,24 @@
+[Unit]
+Description=CandyMo Gomoku room service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mosaki/Projects/gomoku
+Environment=NODE_ENV=production
+Environment=GOMOKU_HOST=127.0.0.1
+Environment=GOMOKU_PORT=8788
+Environment=GOMOKU_ALLOWED_ORIGIN=https://gomoku.candymo.com
+ExecStart=/usr/bin/node /home/mosaki/Projects/gomoku/server/room-server.mjs
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,1593 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-game="gomoku">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14110c">
+  <title>五子棋 · Gomoku</title>
+  <link rel="icon" href="favicon.svg">
+  <style>
+    :root {
+      --bg: #14110c;
+      --bg-soft: #1c1812;
+      --panel: #211b13;
+      --panel-2: #2a2318;
+      --line: #3a3122;
+      --text: #f0e6d4;
+      --text-dim: #a99c86;
+      --accent: #e8c47a;
+      --accent-2: #f3dc9b;
+      --danger: #e0655a;
+      --ok: #7fc98a;
+      --board-light: #d9b878;
+      --board-dark: #b8935a;
+      --grid: #6b4a24;
+      --radius: 16px;
+      --shadow: 0 12px 40px rgba(0, 0, 0, .45);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, #241d12 0%, transparent 60%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+    input { font: inherit; }
+    [hidden] { display: none !important; }
+
+    #app {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    header.top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    header.top .brand { font-size: 15px; letter-spacing: 2px; color: var(--text-dim); }
+    header.top .brand b { color: var(--accent); font-weight: 700; }
+    .back-link {
+      font-size: 13px;
+      color: var(--text-dim);
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      transition: color .2s, border-color .2s;
+    }
+    .back-link:hover { color: var(--accent); border-color: var(--accent); }
+
+    .screen { display: none; flex-direction: column; gap: 18px; }
+    .screen.active { display: flex; }
+
+    .card {
+      background: linear-gradient(180deg, var(--panel) 0%, var(--bg-soft) 100%);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+
+    /* ---- 主菜单 ---- */
+    #screen-menu h1 {
+      font-size: 40px;
+      letter-spacing: 10px;
+      text-align: center;
+      color: var(--text);
+      text-shadow: 0 4px 24px rgba(232, 196, 122, .25);
+    }
+    #screen-menu .tagline {
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 14px;
+      letter-spacing: 3px;
+      margin-top: 6px;
+    }
+    .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .mode-card {
+      background: linear-gradient(160deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      transition: transform .15s, border-color .2s, box-shadow .2s;
+    }
+    .mode-card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: var(--shadow); }
+    .mode-card .icon { font-size: 34px; }
+    .mode-card .name { font-size: 18px; font-weight: 700; letter-spacing: 2px; }
+    .mode-card small { color: var(--text-dim); font-size: 12px; text-align: center; line-height: 1.6; }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+    .panel-head .close {
+      margin-left: auto;
+      color: var(--text-dim);
+      font-size: 20px;
+      line-height: 1;
+      padding: 2px 8px;
+      border-radius: 8px;
+    }
+    .panel-head .close:hover { color: var(--danger); }
+
+    .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .field label { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; }
+    .field input[type="text"], .field input[type="password"], .field input[type="number"] {
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 11px 12px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .field input:focus { border-color: var(--accent); }
+
+    .segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+    .segmented button {
+      padding: 10px 6px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--bg-soft);
+      color: var(--text-dim);
+      font-size: 13px;
+      transition: all .15s;
+    }
+    .segmented button.on { background: var(--accent); color: #221a0c; border-color: var(--accent); font-weight: 700; }
+
+    .primary-btn {
+      width: 100%;
+      padding: 13px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #221a0c;
+      font-weight: 800;
+      letter-spacing: 2px;
+      font-size: 15px;
+      transition: filter .15s, transform .1s;
+    }
+    .primary-btn:hover { filter: brightness(1.06); }
+    .primary-btn:active { transform: scale(.98); }
+    .primary-btn:disabled { filter: grayscale(.7) brightness(.7); cursor: not-allowed; }
+    .ghost-btn {
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text-dim);
+      font-size: 13px;
+      transition: all .15s;
+    }
+    .ghost-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .ghost-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+    .notice { font-size: 13px; color: var(--text-dim); line-height: 1.7; }
+    .notice.error { color: var(--danger); }
+    .notice.ok { color: var(--ok); }
+
+    /* 联机 tabs */
+    .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+    .tabs button {
+      padding: 9px 12px;
+      color: var(--text-dim);
+      font-size: 13px;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+    }
+    .switch-row .label { font-size: 13px; }
+    .switch {
+      position: relative;
+      width: 48px;
+      height: 26px;
+      border-radius: 999px;
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      transition: background .2s;
+    }
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: transform .2s, background .2s;
+    }
+    .switch.on { background: var(--accent); border-color: var(--accent); }
+    .switch.on::after { transform: translateX(22px); background: #221a0c; }
+
+    .room-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow: auto; }
+    .room-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .room-row .meta { flex: 1; min-width: 0; }
+    .room-row .code { font-family: ui-monospace, monospace; letter-spacing: 2px; font-weight: 700; color: var(--accent); }
+    .room-row .sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+    .room-row .lock { color: var(--text-dim); }
+    .room-row button {
+      padding: 7px 12px;
+      border-radius: 8px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .room-row button:hover { border-color: var(--accent); color: var(--accent); }
+    .empty-hint { text-align: center; color: var(--text-dim); font-size: 13px; padding: 22px 0; }
+
+    /* ---- 大厅 ---- */
+    .lobby-code {
+      text-align: center;
+      font-family: ui-monospace, monospace;
+      font-size: 34px;
+      letter-spacing: 8px;
+      color: var(--accent);
+      padding: 14px 0 4px;
+    }
+    .copy-row { display: flex; justify-content: center; gap: 10px; }
+    .player-slot {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+    }
+    .player-slot .stone { width: 22px; height: 22px; border-radius: 50%; flex: none; }
+    .player-slot .stone.black { background: radial-gradient(circle at 35% 30%, #555, #000 70%); box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+    .player-slot .stone.white { background: radial-gradient(circle at 35% 30%, #fff, #cfc9bd 70%); box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+    .player-slot .slot-name { font-size: 14px; flex: 1; }
+    .player-slot .slot-state { font-size: 12px; color: var(--text-dim); }
+    .player-slot.waiting { opacity: .55; border-style: dashed; }
+    .spectator-line { font-size: 12px; color: var(--text-dim); text-align: center; padding: 6px 0; }
+
+    /* ---- RPS ---- */
+    #screen-rps .rps-title { text-align: center; font-size: 16px; letter-spacing: 2px; }
+    .rps-countdown { text-align: center; font-size: 48px; font-weight: 800; color: var(--accent); padding: 20px 0; }
+    .rps-buttons { display: flex; justify-content: center; gap: 16px; }
+    .rps-buttons button {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      font-size: 40px;
+      transition: transform .15s, border-color .2s;
+    }
+    .rps-buttons button:hover { transform: translateY(-4px); border-color: var(--accent); }
+    .rps-buttons button:disabled { opacity: .5; transform: none; }
+    .rps-result { text-align: center; font-size: 16px; line-height: 2; }
+    .rps-result .big { font-size: 22px; font-weight: 800; color: var(--accent); }
+    .rps-waiting { text-align: center; color: var(--text-dim); font-size: 14px; padding: 18px 0; }
+
+    /* ---- 对局 ---- */
+    .game-top { display: flex; align-items: center; gap: 10px; }
+    .game-top .who { font-size: 14px; flex: 1; line-height: 1.5; }
+    .game-top .who .mark { font-weight: 800; }
+    .badge {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    .badge.direct { color: var(--ok); border-color: var(--ok); }
+    .badge.connecting { color: var(--accent); border-color: var(--accent); animation: pulse 1.2s infinite; }
+    @keyframes pulse { 50% { opacity: .45; } }
+
+    .board-wrap {
+      position: relative;
+      width: min(100%, 560px);
+      margin: 0 auto;
+      border-radius: 14px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.55), inset 0 0 40px rgba(0,0,0,.25);
+      overflow: hidden;
+    }
+    #board { display: block; width: 100%; height: auto; touch-action: manipulation; }
+
+    .game-controls { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+    /* ---- 结算 ---- */
+    #result-layer {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 8, 5, .72);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 20px;
+    }
+    #result-layer.show { display: flex; }
+    .result-card {
+      width: 100%;
+      max-width: 360px;
+      background: linear-gradient(180deg, var(--panel-2), var(--bg-soft));
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 30px 24px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .result-card .title { font-size: 26px; font-weight: 800; letter-spacing: 3px; }
+    .result-card .sub { font-size: 14px; color: var(--text-dim); line-height: 1.7; }
+    .result-card .actions { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s, transform .25s;
+      z-index: 60;
+      max-width: 86vw;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast.error { border-color: var(--danger); color: #ffd9d4; }
+
+    @media (max-width: 460px) {
+      .mode-cards { grid-template-columns: 1fr; }
+      #screen-menu h1 { font-size: 32px; letter-spacing: 8px; }
+      .rps-buttons button { width: 72px; height: 72px; font-size: 32px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header class="top">
+      <span class="brand">CandyMo <b>·</b> 五子棋</span>
+      <a class="back-link" href="/">返回首页</a>
+    </header>
+
+    <!-- ============ 主菜单 ============ -->
+    <main id="screen-menu" class="screen active">
+      <div>
+        <h1>五子棋</h1>
+        <p class="tagline">五子连珠 · 先手为胜</p>
+      </div>
+      <div class="mode-cards">
+        <button class="mode-card" data-mode="ai">
+          <span class="icon">🤖</span>
+          <span class="name">人机对战</span>
+          <small>与电脑对弈<br>三档难度 · 可选先后手</small>
+        </button>
+        <button class="mode-card" data-mode="net">
+          <span class="icon">🌐</span>
+          <span class="name">联机对战</span>
+          <small>创建或加入房间<br>P2P 直连 · 公开/私有 · 观战</small>
+        </button>
+      </div>
+
+      <!-- 人机设置 -->
+      <section id="ai-panel" class="card" hidden>
+        <div class="panel-head"><span>人机对战设置</span><button class="close" data-close="ai">×</button></div>
+        <div class="field">
+          <label>AI 难度</label>
+          <div class="segmented" id="ai-difficulty">
+            <button data-value="easy">入门</button>
+            <button data-value="medium" class="on">进阶</button>
+            <button data-value="hard">大师</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>我的棋子</label>
+          <div class="segmented" id="ai-color">
+            <button data-value="black" class="on">执黑 · 先手</button>
+            <button data-value="white">执白 · 后手</button>
+          </div>
+        </div>
+        <button class="primary-btn" id="ai-start">开始对弈</button>
+      </section>
+
+      <!-- 联机面板 -->
+      <section id="net-panel" class="card" hidden>
+        <div class="panel-head"><span>联机对战</span><button class="close" data-close="net">×</button></div>
+        <div class="field">
+          <label>我的昵称</label>
+          <input type="text" id="net-nickname" maxlength="16" placeholder="输入昵称，最多 16 字" autocomplete="nickname">
+        </div>
+        <div class="tabs">
+          <button class="on" data-tab="create">创建房间</button>
+          <button data-tab="join">加入房间</button>
+          <button data-tab="public">公开房间</button>
+        </div>
+
+        <div id="tab-create">
+          <div class="switch-row">
+            <span class="label">公开房间（在公开列表可见）</span>
+            <button class="switch" id="create-visibility" aria-pressed="false"></button>
+          </div>
+          <div class="field">
+            <label>房间密码（可选，加入需输入）</label>
+            <input type="password" id="create-password" maxlength="32" placeholder="留空则无需密码">
+          </div>
+          <button class="primary-btn" id="create-submit">创建房间</button>
+        </div>
+
+        <div id="tab-join" hidden>
+          <div class="field">
+            <label>房间码</label>
+            <input type="text" id="join-code" maxlength="6" placeholder="6 位房间码，如 R4PWWH" style="text-transform:uppercase; letter-spacing:4px; font-family:ui-monospace,monospace;">
+          </div>
+          <div class="field">
+            <label>房间密码（如创建者设置）</label>
+            <input type="password" id="join-password" maxlength="32" placeholder="无密码可留空">
+          </div>
+          <div class="switch-row">
+            <span class="label">以观战身份加入（可观看进行中的对局）</span>
+            <button class="switch" id="join-spectate" aria-pressed="false"></button>
+          </div>
+          <button class="primary-btn" id="join-submit">加入房间</button>
+        </div>
+
+        <div id="tab-public" hidden>
+          <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px;">
+            <span class="notice" style="flex:1;" id="public-hint">正在加载公开房间…</span>
+            <button class="ghost-btn" id="public-refresh">刷新</button>
+          </div>
+          <div class="room-list" id="public-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============ 大厅 ============ -->
+    <main id="screen-lobby" class="screen">
+      <div class="card">
+        <div class="panel-head"><span>对局大厅</span></div>
+        <div class="lobby-code" id="lobby-code">------</div>
+        <div class="copy-row">
+          <button class="ghost-btn" id="copy-code">复制房间码</button>
+          <button class="ghost-btn" id="copy-invite">复制邀请链接</button>
+        </div>
+        <div style="height:14px"></div>
+        <div class="player-slot waiting" id="slot-black">
+          <span class="stone black"></span>
+          <span class="slot-name" id="slot-black-name">等待玩家…</span>
+          <span class="slot-state" id="slot-black-state"></span>
+        </div>
+        <div class="player-slot waiting" id="slot-white">
+          <span class="stone white"></span>
+          <span class="slot-name" id="slot-white-name">等待玩家…</span>
+          <span class="slot-state" id="slot-white-state"></span>
+        </div>
+        <div class="spectator-line" id="spectator-line">观战 0 人</div>
+        <div style="height:8px"></div>
+        <div class="notice" id="lobby-tip">剪刀石头布定先手：双方准备好后由房主开始。</div>
+        <div style="height:10px"></div>
+        <div style="display:flex; gap:10px;">
+          <button class="primary-btn" id="ready-btn" style="flex:1.4;">准备</button>
+          <button class="ghost-btn" id="start-btn" disabled style="flex:1;">开始对局</button>
+        </div>
+        <div style="height:8px"></div>
+        <button class="ghost-btn danger" id="leave-lobby" style="width:100%;">离开房间</button>
+      </div>
+    </main>
+
+    <!-- ============ 剪刀石头布 ============ -->
+    <main id="screen-rps" class="screen">
+      <div class="card">
+        <div class="panel-head" style="justify-content:center;"><span>剪刀石头布 · 定先手</span></div>
+        <div class="rps-countdown" id="rps-countdown" hidden></div>
+        <div id="rps-choose" hidden>
+          <p class="rps-title">出拳！赢家执黑先手</p>
+          <div style="height:16px"></div>
+          <div class="rps-buttons">
+            <button data-choice="rock" aria-label="石头">✊</button>
+            <button data-choice="scissors" aria-label="剪刀">✌️</button>
+            <button data-choice="paper" aria-label="布">🖐️</button>
+          </div>
+          <div class="rps-waiting" id="rps-waiting" hidden>已出拳，等待对方…</div>
+        </div>
+        <div class="rps-result" id="rps-result" hidden></div>
+        <div style="height:8px"></div>
+        <button class="ghost-btn danger" id="leave-rps" style="width:100%;">离开房间</button>
+      </div>
+    </main>
+
+    <!-- ============ 对局 ============ -->
+    <main id="screen-game" class="screen">
+      <div class="game-top">
+        <span class="who" id="game-who"></span>
+        <span class="badge" id="conn-badge" hidden>服务器通道</span>
+      </div>
+      <div class="board-wrap">
+        <canvas id="board" width="600" height="600" aria-label="五子棋棋盘"></canvas>
+      </div>
+      <div class="game-controls" id="game-controls"></div>
+    </main>
+
+    <!-- ============ 结算 ============ -->
+    <div id="result-layer">
+      <div class="result-card">
+        <div class="title" id="result-title">你赢了</div>
+        <div class="sub" id="result-sub"></div>
+        <div class="actions" id="result-actions"></div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script src="runtime-config.js"></script>
+  <script src="viewport-fit.js"></script>
+  <script src="host-bridge.js"></script>
+  <script src="gomoku-core.js"></script>
+  <script src="gomoku-net.js"></script>
+  <script>
+  (() => {
+    "use strict";
+
+    const core = window.GomokuCore;
+    const net = window.GomokuNet;
+    const $ = (id) => document.getElementById(id);
+
+    const screens = {
+      menu: $("screen-menu"),
+      lobby: $("screen-lobby"),
+      rps: $("screen-rps"),
+      game: $("screen-game")
+    };
+
+    function showScreen(name) {
+      for (const [key, element] of Object.entries(screens)) {
+        element.classList.toggle("active", key === name);
+      }
+    }
+
+    function hideResult() {
+      $("result-layer").classList.remove("show");
+    }
+
+    let toastTimer = 0;
+    function toast(message, isError = false) {
+      const element = $("toast");
+      element.textContent = message;
+      element.classList.toggle("error", Boolean(isError));
+      element.classList.add("show");
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => element.classList.remove("show"), 2400);
+    }
+
+    // ================= 棋盘渲染 =================
+
+    const canvas = $("board");
+    const ctx = canvas.getContext("2d");
+    const SIZE = core.SIZE;
+    let hoverIndex = -1;
+
+    function boardPixels() {
+      const rect = canvas.getBoundingClientRect();
+      return Math.round(rect.width);
+    }
+
+    function resizeCanvas() {
+      const cssWidth = boardPixels();
+      const ratio = window.devicePixelRatio || 1;
+      const pixels = Math.max(120, Math.round(cssWidth * ratio));
+      if (canvas.width !== pixels) {
+        canvas.width = pixels;
+        canvas.height = pixels;
+      }
+      renderBoard();
+    }
+
+    function cellSize() {
+      return canvas.width / (SIZE + 1);
+    }
+
+    function cellCenter(index) {
+      const size = cellSize();
+      const row = Math.floor(index / SIZE);
+      const column = index % SIZE;
+      return { x: size + column * size, y: size + row * size };
+    }
+
+    function currentBoard() {
+      if (game.mode === "net" && net.state) return net.state.board;
+      return game.board;
+    }
+
+    function currentMarkAt(index) {
+      return currentBoard()[index];
+    }
+
+    function drawStone(x, y, mark, radius) {
+      const gradient = ctx.createRadialGradient(
+        x - radius * 0.35, y - radius * 0.4, radius * 0.1,
+        x, y, radius
+      );
+      if (mark === core.BLACK) {
+        gradient.addColorStop(0, "#6a6a6a");
+        gradient.addColorStop(0.25, "#2b2b2b");
+        gradient.addColorStop(1, "#050505");
+      } else {
+        gradient.addColorStop(0, "#ffffff");
+        gradient.addColorStop(0.55, "#ece7da");
+        gradient.addColorStop(1, "#bdb6a6");
+      }
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,.55)";
+      ctx.shadowBlur = radius * 0.45;
+      ctx.shadowOffsetY = radius * 0.18;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function renderBoard() {
+      const width = canvas.width;
+      const size = cellSize();
+      ctx.clearRect(0, 0, width, width);
+
+      // 木质棋盘底
+      const wood = ctx.createLinearGradient(0, 0, width, width);
+      wood.addColorStop(0, "#d9b878");
+      wood.addColorStop(0.5, "#c6a162");
+      wood.addColorStop(1, "#b8935a");
+      ctx.fillStyle = wood;
+      ctx.fillRect(0, 0, width, width);
+
+      // 网格
+      ctx.strokeStyle = "#6b4a24";
+      ctx.lineWidth = Math.max(1, width / 600);
+      ctx.beginPath();
+      for (let line = 0; line < SIZE; line += 1) {
+        const offset = size + line * size;
+        ctx.moveTo(size, offset);
+        ctx.lineTo(size + (SIZE - 1) * size, offset);
+        ctx.moveTo(offset, size);
+        ctx.lineTo(offset, size + (SIZE - 1) * size);
+      }
+      ctx.stroke();
+
+      // 星位
+      const starPoints = [[3, 3], [11, 3], [7, 7], [3, 11], [11, 11]];
+      ctx.fillStyle = "#5a3d1c";
+      for (const [row, column] of starPoints) {
+        const x = size + column * size;
+        const y = size + row * size;
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(2.2, width / 130), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 棋子
+      const board = currentBoard();
+      const stoneRadius = size * 0.42;
+      for (let index = 0; index < board.length; index += 1) {
+        if (!board[index]) continue;
+        const { x, y } = cellCenter(index);
+        drawStone(x, y, board[index], stoneRadius);
+      }
+
+      // 悬停预览
+      if (hoverIndex >= 0 && !game.over && !game.busy) {
+        const mark = game.mode === "net" ? netMark() : game.myMark;
+        if (mark && !board[hoverIndex]) {
+          const { x, y } = cellCenter(hoverIndex);
+          ctx.save();
+          ctx.globalAlpha = 0.4;
+          drawStone(x, y, mark, stoneRadius);
+          ctx.restore();
+        }
+      }
+
+      // 最后一步标记
+      const lastIndex = game.lastIndex;
+      if (lastIndex >= 0 && board[lastIndex]) {
+        const { x, y } = cellCenter(lastIndex);
+        ctx.fillStyle = "#e0655a";
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(2, width / 220), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 五连高亮
+      const winLine = game.mode === "net" ? net.state?.winLine || [] : game.winLine;
+      if (winLine.length >= 5) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(224,101,90,.95)";
+        ctx.lineWidth = stoneRadius * 0.5;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        winLine.forEach((index, at) => {
+          const { x, y } = cellCenter(index);
+          if (at === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.restore();
+        for (const index of winLine) {
+          const { x, y } = cellCenter(index);
+          ctx.save();
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = Math.max(1.5, width / 400);
+          ctx.beginPath();
+          ctx.arc(x, y, stoneRadius * 1.28, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+
+    // ================= 对局状态 =================
+
+    const game = {
+      mode: null,           // "ai" | "net"
+      board: Array(core.CELL_COUNT).fill(0),
+      turn: core.BLACK,
+      myMark: core.BLACK,
+      aiMark: core.WHITE,
+      difficulty: "medium",
+      history: [],
+      lastIndex: -1,
+      over: false,
+      winLine: [],
+      busy: false,
+      aiThinking: false
+    };
+
+    function resetGame() {
+      game.board = Array(core.CELL_COUNT).fill(0);
+      game.turn = core.BLACK;
+      game.history = [];
+      game.lastIndex = -1;
+      game.over = false;
+      game.winLine = [];
+      game.busy = false;
+      game.aiThinking = false;
+      hoverIndex = -1;
+      hideResult();
+      renderBoard();
+      renderGameTop();
+    }
+
+    function netMark() {
+      const state = net.state;
+      if (!state || net.role !== "player") return 0;
+      return state.blackId === net.myId ? core.BLACK : core.WHITE;
+    }
+
+    function netOpponent() {
+      const players = net.snapshot?.players || [];
+      return players.find((player) => player.id !== net.myId)?.nickname || "对手";
+    }
+
+    function playerNickname(id) {
+      const players = net.snapshot?.players || [];
+      return players.find((player) => player.id === id)?.nickname || "玩家";
+    }
+
+    function myTurn() {
+      if (game.mode === "ai") return game.turn === game.myMark && !game.over && !game.aiThinking;
+      if (game.mode !== "net" || net.role !== "player") return false;
+      const state = net.state;
+      return Boolean(state && state.turnId === net.myId && !state.winnerId && net.status === "playing");
+    }
+
+    function renderGameTop() {
+      const who = $("game-who");
+      if (game.mode === "ai") {
+        const markName = game.myMark === core.BLACK ? "● 执黑" : "○ 执白";
+        const levelName = { easy: "入门", medium: "进阶", hard: "大师" }[game.difficulty];
+        const turnText = game.over
+          ? "对局结束"
+          : game.aiThinking
+            ? "电脑思考中…"
+            : game.turn === game.myMark
+              ? "轮到你落子"
+              : "电脑回合";
+        who.innerHTML = `<span class="mark">${markName}</span> · ${levelName} AI<br><span style="color:var(--text-dim);font-size:12px;">${turnText}</span>`;
+      } else {
+        const state = net.state;
+        const markName = net.role === "player"
+          ? (netMark() === core.BLACK ? "● 执黑" : "○ 执白")
+          : "👁 观战";
+        const turnText = !state
+          ? "等待开局…"
+          : state.winnerId
+            ? "对局结束"
+            : state.turnId === net.myId && net.role === "player"
+              ? "轮到你落子"
+              : "等待对方落子";
+        who.innerHTML = `<span class="mark">${markName}</span> · 对手：${escapeHtml(netOpponent())}<br><span style="color:var(--text-dim);font-size:12px;">${turnText}</span>`;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => (
+        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]
+      ));
+    }
+
+    function renderControls() {
+      const container = $("game-controls");
+      const buttons = [];
+      if (game.mode === "ai") {
+        buttons.push({ text: "悔棋", onClick: undoMove, disabled: game.history.length === 0 || game.busy || game.aiThinking });
+        buttons.push({ text: "重新开始", onClick: () => startAiGame(game.difficulty, game.myMark), disabled: game.busy });
+        buttons.push({ text: "认输", onClick: () => endAiGame(core.WHITE === game.myMark ? null : core.WHITE, "ai-resign") });
+        buttons.push({ text: "返回菜单", onClick: backToMenu, disabled: game.busy });
+      } else if (game.mode === "net") {
+        if (net.role === "player") {
+          buttons.push({ text: "认输", onClick: resign, disabled: !net.state || net.status !== "playing" });
+        }
+        buttons.push({ text: "离开", onClick: leaveNet, disabled: false });
+      }
+      container.innerHTML = "";
+      for (const button of buttons) {
+        const element = document.createElement("button");
+        element.className = "ghost-btn";
+        element.textContent = button.text;
+        element.disabled = Boolean(button.disabled);
+        element.addEventListener("click", button.onClick);
+        container.appendChild(element);
+      }
+    }
+
+    // ================= 人机模式 =================
+
+    function startAiGame(difficulty, myMark) {
+      resetGame();
+      game.mode = "ai";
+      game.difficulty = difficulty;
+      game.myMark = myMark;
+      game.aiMark = myMark === core.BLACK ? core.WHITE : core.BLACK;
+      showScreen("game");
+      resizeCanvas();
+      renderControls();
+      window.GomokuHost.start();
+      if (game.aiMark === core.BLACK) {
+        scheduleAiMove();
+      }
+    }
+
+    function scheduleAiMove() {
+      game.aiThinking = true;
+      game.busy = true;
+      renderGameTop();
+      window.setTimeout(() => {
+        const index = core.aiMove(game.board, game.aiMark, game.difficulty);
+        applyMove(index, game.aiMark);
+        game.aiThinking = false;
+        game.busy = false;
+        renderGameTop();
+      }, 160);
+    }
+
+    function applyMove(index, mark) {
+      if (game.over || game.board[index]) return;
+      game.board[index] = mark;
+      game.history.push({ index, mark });
+      game.lastIndex = index;
+      game.turn = core.other(mark);
+      renderBoard();
+      const line = core.winAt(game.board, index);
+      if (line) {
+        game.over = true;
+        game.winLine = line;
+        endAiGame(mark, "five");
+        return;
+      }
+      if (game.history.length >= core.CELL_COUNT) {
+        game.over = true;
+        endAiGame(null, "board-full");
+      }
+    }
+
+    function undoMove() {
+      if (game.history.length === 0 || game.busy || game.aiThinking) return;
+      const removed = [];
+      if (game.history.length >= 2) {
+        removed.push(game.history.pop(), game.history.pop());
+      } else {
+        removed.push(game.history.pop());
+      }
+      for (const entry of removed) game.board[entry.index] = 0;
+      game.lastIndex = game.history.length ? game.history[game.history.length - 1].index : -1;
+      game.turn = game.history.length % 2 === 0 ? core.BLACK : core.WHITE;
+      game.over = false;
+      game.winLine = [];
+      hideResult();
+      renderBoard();
+      renderGameTop();
+      renderControls();
+      // 悔棋后若轮到 AI，继续让 AI 走
+      if (game.turn === game.aiMark && !game.over) scheduleAiMove();
+    }
+
+    function endAiGame(winnerMark, reason) {
+      game.over = true;
+      renderBoard();
+      renderGameTop();
+      renderControls();
+      const title = winnerMark === null
+        ? "平局"
+        : winnerMark === game.myMark
+          ? "你赢了 🎉"
+          : "你输了";
+      const moves = game.history.length;
+      let sub;
+      if (reason === "ai-resign") sub = "你认输了。";
+      else if (winnerMark === null) sub = `棋盘已满，${moves} 手平局。`;
+      else if (winnerMark === game.myMark) sub = `第 ${moves} 手五子连珠，战胜${game.difficulty === "easy" ? "入门" : game.difficulty === "medium" ? "进阶" : "大师"}电脑。`;
+      else sub = `第 ${moves} 手被电脑五子连珠。`;
+      const score = winnerMark === game.myMark ? Math.max(100, 2000 - moves * 20) : 0;
+      window.GomokuHost.end(score);
+      showResult(title, sub, [
+        { text: "再来一局", primary: true, onClick: () => startAiGame(game.difficulty, game.myMark) },
+        { text: "返回菜单", onClick: backToMenu }
+      ]);
+    }
+
+    // ================= 联机：大厅 / RPS / 对局 =================
+
+    let readyState = false;
+    let rpsSubmitted = false;
+    let myRole = "";
+
+    function enterNetScreen(room) {
+      if (!room) return;
+      if (room.status === "lobby") {
+        renderLobby(room);
+        showScreen("lobby");
+      } else if (room.status === "countdown" || room.status === "rps") {
+        renderRps(room);
+        showScreen("rps");
+      } else {
+        renderNetGame(room);
+        showScreen("game");
+      }
+    }
+
+    function renderLobby(room) {
+      $("lobby-code").textContent = room.code;
+      const players = room.players || [];
+      const host = players.find((player) => player.id === room.hostId);
+      const me = players.find((player) => player.id === net.myId);
+      const fillSlot = (slotName, stateName, player) => {
+        const slot = $(slotName);
+        const state = $(stateName);
+        if (player) {
+          slot.classList.remove("waiting");
+          slot.querySelector(".slot-name").textContent = player.nickname + (player.id === net.myId ? "（我）" : "");
+          state.textContent = player.ready ? "已准备" : "未准备";
+        } else {
+          slot.classList.add("waiting");
+          slot.querySelector(".slot-name").textContent = "等待玩家…";
+          state.textContent = "";
+        }
+      };
+      fillSlot("slot-black", "slot-black-state", players[0] || null);
+      fillSlot("slot-white", "slot-white-state", players[1] || null);
+      $("spectator-line").textContent = `观战 ${(room.spectators || []).length} 人`;
+
+      const allReady = players.length === 2 && players.every((player) => player.ready);
+      $("start-btn").disabled = !(me?.isHost && allReady);
+      $("start-btn").textContent = me?.isHost ? "开始对局" : "等待房主开始";
+      $("ready-btn").textContent = me?.ready ? "取消准备" : "准备";
+
+      const tip = $("lobby-tip");
+      if (room.visibility === "public") {
+        tip.textContent = room.hasPassword
+          ? `公开房间 · 已设置密码 · 剪刀石头布定先手。`
+          : `公开房间 · 剪刀石头布定先手。`;
+      } else {
+        tip.textContent = room.hasPassword
+          ? `私有房间 · 已设置密码 · 剪刀石头布定先手。`
+          : `私有房间 · 剪刀石头布定先手。`;
+      }
+    }
+
+    function renderRps(room) {
+      const countdown = $("rps-countdown");
+      const choose = $("rps-choose");
+      const waiting = $("rps-waiting");
+      const result = $("rps-result");
+      const state = room.state;
+
+      hideResult();
+      rpsSubmitted = false;
+      result.hidden = true;
+      choose.hidden = true;
+      countdown.hidden = true;
+
+      if (room.status === "countdown") {
+        countdown.hidden = false;
+        choose.hidden = true;
+        result.hidden = true;
+        const tick = () => {
+          const remaining = Math.max(0, Math.ceil((room.countdownUntil - Date.now()) / 1000));
+          countdown.textContent = remaining ? `${remaining}` : "出拳！";
+          if (remaining > 0) requestAnimationFrame(tick);
+        };
+        tick();
+        return;
+      }
+
+      choose.hidden = false;
+      const isSpectator = net.role !== "player";
+      if (isSpectator) {
+        document.querySelectorAll(".rps-buttons button").forEach((button) => { button.disabled = true; });
+        waiting.hidden = false;
+        waiting.textContent = "等待玩家出拳…";
+      } else if (state?.rpsMine || state?.rpsChosen?.includes(net.myId)) {
+        waiting.hidden = false;
+        waiting.textContent = "已出拳，等待对方…";
+        document.querySelectorAll(".rps-buttons button").forEach((button) => { button.disabled = true; });
+      } else {
+        waiting.hidden = true;
+        document.querySelectorAll(".rps-buttons button").forEach((button) => { button.disabled = false; });
+      }
+
+      if (state?.rpsResult) {
+        choose.hidden = true;
+        result.hidden = false;
+        const choiceName = { rock: "石头 ✊", scissors: "剪刀 ✌️", paper: "布 🖐️" };
+        if (net.role === "player") {
+          const mineChoice = state.rpsResult.choices[net.myId];
+          const opponentChoice = Object.entries(state.rpsResult.choices).find(([id]) => id !== net.myId)?.[1];
+          const won = state.rpsResult.winnerId === net.myId;
+          const myMark = state.blackId === net.myId ? "黑" : "白";
+          result.innerHTML = `
+            <div>你出了 <b>${choiceName[mineChoice]}</b> · 对方出了 <b>${choiceName[opponentChoice]}</b></div>
+            <div class="big">${won ? "你赢了！执黑先手 ●" : `对方先手，你执${myMark} ○`}</div>
+          `;
+        } else {
+          const entries = Object.entries(state.rpsResult.choices);
+          const first = entries[0];
+          const second = entries[1];
+          result.innerHTML = `
+            <div>${escapeHtml(playerNickname(first[0]))} 出了 <b>${choiceName[first[1]]}</b></div>
+            <div>${escapeHtml(playerNickname(second[0]))} 出了 <b>${choiceName[second[1]]}</b></div>
+            <div class="big">${escapeHtml(playerNickname(state.rpsResult.winnerId))} 执黑先手 ●</div>
+          `;
+        }
+      }
+    }
+
+    function renderNetGame(room) {
+      const state = room.state;
+      if (!state) return;
+      game.mode = "net";
+      game.lastIndex = lastPlacedIndex(state.board, state.moveCount);
+      game.over = Boolean(state.winnerId || state.draw);
+      game.winLine = state.winLine || [];
+      resizeCanvas();
+      renderBoard();
+      renderGameTop();
+      renderControls();
+      if (netStartedRound !== room.roundNumber && room.status === "playing") {
+        netStartedRound = room.roundNumber;
+        window.GomokuHost.start();
+      }
+    }
+
+    let netStartedRound = 0;
+
+    function lastPlacedIndex(board, moveCount) {
+      if (!moveCount) return -1;
+      for (let index = board.length - 1; index >= 0; index -= 1) {
+        if (board[index]) return index;
+      }
+      return -1;
+    }
+
+    function showResult(title, sub, actions) {
+      $("result-title").textContent = title;
+      $("result-sub").textContent = sub;
+      const container = $("result-actions");
+      container.innerHTML = "";
+      for (const action of actions) {
+        const button = document.createElement("button");
+        button.className = action.primary ? "primary-btn" : "ghost-btn";
+        button.textContent = action.text;
+        button.addEventListener("click", action.onClick);
+        container.appendChild(button);
+      }
+      $("result-layer").classList.add("show");
+    }
+
+    function renderNetResult(room) {
+      const state = room.state;
+      if (!state) return;
+      const actions = [];
+      let title = "";
+      let sub = "";
+      if (state.winnerId) {
+        const won = state.winnerId === net.myId;
+        title = net.role === "player" ? (won ? "你赢了 🎉" : "你输了") : "对局结束";
+        if (state.reason === "forfeit") {
+          sub = state.forfeitPlayerId === net.myId ? "你认输了。" : (net.role === "player" ? "对方认输，你获胜。" : "有玩家认输。");
+        } else {
+          const moves = state.moveCount;
+          sub = net.role === "player"
+            ? (won ? `第 ${moves} 手五子连珠，战胜 ${netOpponent()}。` : `第 ${moves} 手被对方五子连珠。`)
+            : `第 ${moves} 手分胜负。`;
+        }
+        if (won && net.role === "player") window.GomokuHost.end(Math.max(100, 2000 - state.moveCount * 20));
+        else if (net.role === "player") window.GomokuHost.end(0);
+      } else if (state.draw) {
+        title = "平局";
+        sub = "棋盘已满，不分胜负。";
+        window.GomokuHost.end(50);
+      }
+      if (net.role === "player") {
+        actions.push({ text: "再来一局", primary: true, onClick: () => {
+          net.rematch().catch((error) => toast(error.message, true));
+          $("result-actions").querySelectorAll("button").forEach((button) => { button.disabled = true; });
+          toast("已发起再来一局，等待对方确认…");
+        } });
+      }
+      actions.push({ text: "离开房间", onClick: leaveNet });
+      showResult(title, sub, actions);
+    }
+
+    // ---- 联机动作 ----
+
+    function enterNet() {
+      myRole = net.role;
+      if (net.snapshot) enterNetScreen(net.snapshot);
+    }
+
+    function leaveNet() {
+      net.leave().then(() => {
+        game.mode = null;
+        resetGame();
+        showScreen("menu");
+        window.GomokuHost.end();
+      }).catch(() => {
+        game.mode = null;
+        showScreen("menu");
+      });
+    }
+
+    function resign() {
+      netResign().catch((error) => toast(error.message, true));
+    }
+
+    async function netResign() {
+      const payload = await net.rawRequest("resign", {});
+      applyNetSnapshot(payload.room);
+    }
+
+    // ================= 联机：快照驱动 =================
+
+    function applyNetSnapshot(room) {
+      if (!room) return;
+      if (game.mode !== "net" && room.status !== "lobby") {
+        game.mode = "net";
+      }
+      if (game.mode === "net") {
+        enterNetScreen(room);
+        if (room.status === "finished" && room.state?.winnerId !== undefined) {
+          renderNetResult(room);
+        }
+      }
+    }
+
+    net.onSnapshot((room) => {
+      if (!room) {
+        // 房间失效（过期或凭据失效）
+        toast("房间已失效，请重新加入", true);
+        window.setTimeout(() => {
+          game.mode = null;
+          resetGame();
+          showScreen("menu");
+        }, 600);
+        return;
+      }
+      if (game.mode === "net") {
+        applyNetSnapshot(room);
+      }
+    });
+
+    net.onPeerStatus((status) => {
+      const badge = $("conn-badge");
+      if (game.mode !== "net") {
+        badge.hidden = true;
+        return;
+      }
+      badge.hidden = status === "server";
+      badge.textContent = status === "direct" ? "P2P 直连" : status === "connecting" ? "P2P 连接中" : "服务器通道";
+      badge.className = `badge ${status}`;
+    });
+
+    // ================= 事件绑定 =================
+
+    // 主菜单模式选择
+    document.querySelectorAll(".mode-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        const mode = card.dataset.mode;
+        $("ai-panel").hidden = mode !== "ai";
+        $("net-panel").hidden = mode !== "net";
+        if (mode === "net" && !$("net-nickname").value) {
+          $("net-nickname").value = localStorage.getItem("gomoku_nickname") || "";
+        }
+      });
+    });
+
+    document.querySelectorAll(".panel-head .close").forEach((button) => {
+      button.addEventListener("click", () => {
+        $("ai-panel").hidden = true;
+        $("net-panel").hidden = true;
+      });
+    });
+
+    // AI 设置
+    let aiDifficulty = "medium";
+    let aiColor = "black";
+    const segmented = (id, onSelect) => {
+      const container = $(id);
+      container.querySelectorAll("button").forEach((button) => {
+        button.addEventListener("click", () => {
+          container.querySelectorAll("button").forEach((item) => item.classList.remove("on"));
+          button.classList.add("on");
+          onSelect(button.dataset.value);
+        });
+      });
+    };
+    segmented("ai-difficulty", (value) => { aiDifficulty = value; });
+    segmented("ai-color", (value) => { aiColor = value; });
+
+    $("ai-start").addEventListener("click", () => {
+      startAiGame(aiDifficulty, aiColor === "black" ? core.BLACK : core.WHITE);
+    });
+
+    // 联机 tabs
+    let netTab = "create";
+    const switchTab = (tab) => {
+      netTab = tab;
+      document.querySelectorAll(".tabs button").forEach((button) => {
+        button.classList.toggle("on", button.dataset.tab === tab);
+      });
+      $("tab-create").hidden = tab !== "create";
+      $("tab-join").hidden = tab !== "join";
+      $("tab-public").hidden = tab !== "public";
+      if (tab === "public") refreshPublic();
+    };
+    document.querySelectorAll(".tabs button").forEach((button) => {
+      button.addEventListener("click", () => switchTab(button.dataset.tab));
+    });
+
+    // 公开/私有开关
+    let createVisibility = false;
+    const visibilitySwitch = $("create-visibility");
+    visibilitySwitch.addEventListener("click", () => {
+      createVisibility = !createVisibility;
+      visibilitySwitch.classList.toggle("on", createVisibility);
+      visibilitySwitch.setAttribute("aria-pressed", String(createVisibility));
+    });
+
+    // 创建房间
+    $("create-submit").addEventListener("click", async () => {
+      const nickname = $("net-nickname").value.trim();
+      if (!nickname) return toast("请先输入昵称", true);
+      localStorage.setItem("gomoku_nickname", nickname);
+      try {
+        await net.createRoom({
+          nickname,
+          visibility: createVisibility ? "public" : "private",
+          password: $("create-password").value
+        });
+        game.mode = "net";
+        enterNet();
+      } catch (error) {
+        toast(error.message, true);
+      }
+    });
+
+    // 加入房间
+    let joinSpectate = false;
+    const joinSpectateSwitch = $("join-spectate");
+    joinSpectateSwitch.addEventListener("click", () => {
+      joinSpectate = !joinSpectate;
+      joinSpectateSwitch.classList.toggle("on", joinSpectate);
+      joinSpectateSwitch.setAttribute("aria-pressed", String(joinSpectate));
+    });
+
+    $("join-submit").addEventListener("click", async () => {
+      const nickname = $("net-nickname").value.trim();
+      const code = $("join-code").value.trim().toUpperCase();
+      if (!nickname) return toast("请先输入昵称", true);
+      if (!/^[A-Z0-9]{6}$/.test(code)) return toast("请输入 6 位房间码", true);
+      localStorage.setItem("gomoku_nickname", nickname);
+      try {
+        await net.joinRoom({
+          code,
+          nickname,
+          password: $("join-password").value,
+          asSpectator: joinSpectate
+        });
+        game.mode = "net";
+        enterNet();
+      } catch (error) {
+        toast(error.message, true);
+      }
+    });
+
+    // 公开房间列表
+    async function refreshPublic() {
+      const list = $("public-list");
+      const hint = $("public-hint");
+      try {
+        hint.textContent = "正在加载…";
+        const rooms = await net.listPublic();
+        if (netTab !== "public") return;
+        hint.textContent = rooms.length ? `共 ${rooms.length} 个公开房间` : "暂无公开房间";
+        list.innerHTML = "";
+        if (!rooms.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty-hint";
+          empty.textContent = "暂时没有公开房间，创建一个吧！";
+          list.appendChild(empty);
+          return;
+        }
+        for (const room of rooms) {
+          const row = document.createElement("div");
+          row.className = "room-row";
+          const stateText = room.status === "lobby" ? "等待中" : room.status === "playing" ? "对局中" : "已结束";
+          row.innerHTML = `
+            <div class="meta">
+              <div class="code">${room.code} <span class="lock">${room.hasPassword ? "🔒" : ""}</span></div>
+              <div class="sub">${escapeHtml(room.hostNickname)} · ${room.playerCount}/${room.capacity} 人 · ${stateText} · 观战 ${room.spectatorCount}</div>
+            </div>
+            <button>加入</button>
+          `;
+          row.querySelector("button").addEventListener("click", async () => {
+            const nickname = $("net-nickname").value.trim();
+            if (!nickname) return toast("请先输入昵称", true);
+            if (room.hasPassword) {
+              const password = window.prompt(`房间 ${room.code} 需要密码：`, "");
+              if (password === null) return;
+              await joinByCode(room.code, nickname, password);
+              return;
+            }
+            await joinByCode(room.code, nickname, "");
+          });
+          list.appendChild(row);
+        }
+      } catch (error) {
+        hint.textContent = "公开房间列表加载失败";
+        toast(error.message, true);
+      }
+    }
+    $("public-refresh").addEventListener("click", refreshPublic);
+
+    async function joinByCode(code, nickname, password) {
+      localStorage.setItem("gomoku_nickname", nickname);
+      try {
+        await net.joinRoom({ code, nickname, password });
+        game.mode = "net";
+        enterNet();
+      } catch (error) {
+        toast(error.message, true);
+      }
+    }
+
+    // 大厅
+    $("copy-code").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(net.code);
+        toast("房间码已复制");
+      } catch {
+        toast(`房间码：${net.code}`);
+      }
+    });
+    $("copy-invite").addEventListener("click", async () => {
+      const invite = new URL(location.pathname, location.origin);
+      invite.searchParams.set("room", net.code);
+      const configuredApi = new URL(net.apiBase, location.origin);
+      if (configuredApi.origin !== location.origin || configuredApi.pathname !== "/api/gomoku") {
+        invite.searchParams.set("api", net.apiBase);
+      }
+      try {
+        await navigator.clipboard.writeText(invite.href);
+        toast("邀请链接已复制");
+      } catch {
+        toast(invite.href);
+      }
+    });
+    $("ready-btn").addEventListener("click", () => {
+      const me = net.snapshot?.players?.find((player) => player.id === net.myId);
+      net.setReady(!me?.ready).catch((error) => toast(error.message, true));
+    });
+    $("start-btn").addEventListener("click", () => {
+      net.startMatch().catch((error) => toast(error.message, true));
+    });
+    $("leave-lobby").addEventListener("click", leaveNet);
+    $("leave-rps").addEventListener("click", leaveNet);
+
+    // RPS 出拳
+    document.querySelectorAll(".rps-buttons button").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (rpsSubmitted) return;
+        rpsSubmitted = true;
+        net.submitRps(button.dataset.choice).catch((error) => {
+          rpsSubmitted = false;
+          toast(error.message, true);
+        });
+      });
+    });
+
+    // 棋盘交互
+    function pointerIndex(event) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width * canvas.width;
+      const y = (event.clientY - rect.top) / rect.height * canvas.width;
+      const size = cellSize();
+      const column = Math.round((x - size) / size);
+      const row = Math.round((y - size) / size);
+      if (column < 0 || column >= SIZE || row < 0 || row >= SIZE) return -1;
+      const index = row * SIZE + column;
+      const cx = size + column * size;
+      const cy = size + row * size;
+      if (Math.hypot(x - cx, y - cy) > size * 0.5) return -1;
+      return index;
+    }
+
+    canvas.addEventListener("pointermove", (event) => {
+      const index = pointerIndex(event);
+      if (index !== hoverIndex) {
+        hoverIndex = index;
+        renderBoard();
+      }
+    });
+    canvas.addEventListener("pointerleave", () => {
+      hoverIndex = -1;
+      renderBoard();
+    });
+
+    canvas.addEventListener("click", (event) => {
+      const index = pointerIndex(event);
+      if (index < 0) return;
+      if (game.mode === "ai") {
+        if (game.over || game.busy || game.aiThinking || game.turn !== game.myMark) return;
+        if (game.board[index]) return;
+        game.busy = true;
+        applyMove(index, game.myMark);
+        game.busy = false;
+        renderControls();
+        if (!game.over) scheduleAiMove();
+        return;
+      }
+      if (game.mode === "net") {
+        if (net.role !== "player") return;
+        const state = net.state;
+        if (!state || state.winnerId || state.turnId !== net.myId) return;
+        if (state.board[index]) return;
+        net.place(index).catch((error) => toast(error.message, true));
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (game.mode) resizeCanvas();
+    });
+    window.addEventListener("orientationchange", () => {
+      window.setTimeout(() => resizeCanvas(), 300);
+    });
+
+    // 返回菜单
+    function backToMenu() {
+      game.mode = null;
+      resetGame();
+      showScreen("menu");
+      window.GomokuHost.end();
+    }
+
+    // ================= 启动 =================
+
+    // 通过 ?room= 邀请链接自动加入房间（对未加入过该房间的新访客同样有效）
+    async function autoJoinByLink(roomCode, savedNickname) {
+      // 1) 本机之前加入过同一房间且房间仍在 → 恢复会话（保持玩家身份）
+      if (net.resume(roomCode)) {
+        game.mode = "net";
+        enterNet();
+        return;
+      }
+      // 2) 还没有昵称 → 引导填写昵称后加入
+      if (!savedNickname) {
+        openJoinTab(roomCode, `输入昵称后即可加入房间 ${roomCode}`);
+        return;
+      }
+      // 3) 有昵称 → 直接加入；玩家位满或对局已开始则作为观战进入
+      try {
+        await tryJoinByLink(roomCode, savedNickname);
+      } catch (error) {
+        openJoinTab(roomCode, error.message, true);
+      }
+    }
+
+    async function tryJoinByLink(code, nickname) {
+      try {
+        await net.joinRoom({ code, nickname, password: "", asSpectator: false });
+      } catch (error) {
+        // 玩家位已满或对局已经开始：降级为观战加入
+        if (error.code === "ROOM_FULL" || error.code === "ROOM_NOT_OPEN") {
+          await net.joinRoom({ code, nickname, password: "", asSpectator: true });
+        } else {
+          throw error;
+        }
+      }
+      game.mode = "net";
+      enterNet();
+    }
+
+    function openJoinTab(roomCode, message, isError = false) {
+      $("ai-panel").hidden = true;
+      $("net-panel").hidden = false;
+      switchTab("join");
+      $("join-code").value = roomCode;
+      if (message) toast(message, isError);
+      if (!$("net-nickname").value) $("net-nickname").focus();
+    }
+
+    async function boot() {
+      resizeCanvas();
+      const params = new URLSearchParams(location.search);
+      const roomCode = (params.get("room") || "").trim().toUpperCase();
+      const savedNickname = localStorage.getItem("gomoku_nickname") || "";
+      $("net-nickname").value = savedNickname;
+      if (roomCode) {
+        await autoJoinByLink(roomCode, savedNickname);
+      }
+    }
+
+    boot();
+  })();
+  </script>
+</body>
+</html>
