@@ -227,6 +227,7 @@
     }
     .switch.on { background: var(--accent); border-color: var(--accent); }
     .switch.on::after { transform: translateX(22px); background: #221a0c; }
+    .ai-rule-row { margin-bottom: 10px; }
 
     .room-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow: auto; }
     .room-row {
@@ -426,6 +427,10 @@
             <button data-value="black" class="on">执黑 · 先手</button>
             <button data-value="white">执白 · 后手</button>
           </div>
+        </div>
+        <div class="switch-row ai-rule-row">
+          <span class="label">先手禁手</span>
+          <button class="switch on" id="ai-renju" aria-label="先手禁手" aria-pressed="true"></button>
         </div>
         <button class="primary-btn" id="ai-start">开始对弈</button>
       </section>
@@ -772,6 +777,7 @@
       myMark: core.BLACK,
       aiMark: core.WHITE,
       difficulty: "medium",
+      renju: true,
       history: [],
       lastIndex: -1,
       over: false,
@@ -823,6 +829,7 @@
       if (game.mode === "ai") {
         const markName = game.myMark === core.BLACK ? "● 执黑" : "○ 执白";
         const levelName = { easy: "入门", medium: "进阶", hard: "大师" }[game.difficulty];
+        const ruleName = game.renju ? " · 先手禁手" : "";
         const turnText = game.over
           ? "对局结束"
           : game.aiThinking
@@ -830,7 +837,7 @@
             : game.turn === game.myMark
               ? "轮到你落子"
               : "电脑回合";
-        who.innerHTML = `<span class="mark">${markName}</span> · ${levelName} AI<br><span style="color:var(--text-dim);font-size:12px;">${turnText}</span>`;
+        who.innerHTML = `<span class="mark">${markName}</span> · ${levelName} AI${ruleName}<br><span style="color:var(--text-dim);font-size:12px;">${turnText}</span>`;
       } else {
         const state = net.state;
         const markName = net.role === "player"
@@ -880,7 +887,9 @@
 
     // ================= 人机模式 =================
 
-    function startAiGame(difficulty, myMark) {
+    function startAiGame(difficulty, myMark, renju = game.renju) {
+      game.renju = Boolean(renju);
+      core.setAiRenju(game.renju);
       resetGame();
       game.mode = "ai";
       game.difficulty = difficulty;
@@ -908,8 +917,23 @@
       }, 160);
     }
 
+    function forbiddenName(reason) {
+      if (reason.includes("double-three")) return "三三禁手";
+      if (reason.includes("double-four")) return "四四禁手";
+      if (reason.includes("overline")) return "长连禁手";
+      return "先手禁手";
+    }
+
     function applyMove(index, mark) {
-      if (game.over || game.board[index]) return;
+      if (!Number.isInteger(index) || index < 0 || index >= core.CELL_COUNT) return false;
+      if (game.over || game.board[index]) return false;
+      if (game.mode === "ai" && game.renju && mark === core.BLACK) {
+        const inspect = core.inspectMove(game.board, index, mark);
+        if (!inspect.legal) {
+          if (mark === game.myMark) toast(`此处为${forbiddenName(inspect.reason)}`, true);
+          return false;
+        }
+      }
       game.board[index] = mark;
       game.history.push({ index, mark });
       game.lastIndex = index;
@@ -920,12 +944,13 @@
         game.over = true;
         game.winLine = line;
         endAiGame(mark, "five");
-        return;
+        return true;
       }
       if (game.history.length >= core.CELL_COUNT) {
         game.over = true;
         endAiGame(null, "board-full");
       }
+      return true;
     }
 
     function undoMove() {
@@ -1270,6 +1295,7 @@
     // AI 设置
     let aiDifficulty = "medium";
     let aiColor = "black";
+    let aiRenju = true;
     const segmented = (id, onSelect) => {
       const container = $(id);
       container.querySelectorAll("button").forEach((button) => {
@@ -1283,8 +1309,15 @@
     segmented("ai-difficulty", (value) => { aiDifficulty = value; });
     segmented("ai-color", (value) => { aiColor = value; });
 
+    const aiRenjuSwitch = $("ai-renju");
+    aiRenjuSwitch.addEventListener("click", () => {
+      aiRenju = !aiRenju;
+      aiRenjuSwitch.classList.toggle("on", aiRenju);
+      aiRenjuSwitch.setAttribute("aria-pressed", String(aiRenju));
+    });
+
     $("ai-start").addEventListener("click", () => {
-      startAiGame(aiDifficulty, aiColor === "black" ? core.BLACK : core.WHITE);
+      startAiGame(aiDifficulty, aiColor === "black" ? core.BLACK : core.WHITE, aiRenju);
     });
 
     // 联机 tabs
@@ -1498,10 +1531,10 @@
         if (game.over || game.busy || game.aiThinking || game.turn !== game.myMark) return;
         if (game.board[index]) return;
         game.busy = true;
-        applyMove(index, game.myMark);
+        const moved = applyMove(index, game.myMark);
         game.busy = false;
         renderControls();
-        if (!game.over) scheduleAiMove();
+        if (moved && !game.over) scheduleAiMove();
         return;
       }
       if (game.mode === "net") {

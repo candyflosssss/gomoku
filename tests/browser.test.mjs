@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 
 const repository = resolve(import.meta.dirname, "..");
 const host = "127.0.0.1";
+const chromeExecutable = process.env.GOMOKU_CHROME || "google-chrome";
 const processes = [];
 let taskDirectory = "";
 
@@ -203,9 +204,9 @@ async function main() {
   mkdirSync(hostProfile);
   mkdirSync(guestProfile);
   mkdirSync(specProfile);
-  const hostChrome = start("host Chrome", "google-chrome", chromeArgs(hostDebugPort, hostProfile));
-  const guestChrome = start("guest Chrome", "google-chrome", chromeArgs(guestDebugPort, guestProfile));
-  const specChrome = start("spec Chrome", "google-chrome", chromeArgs(specDebugPort, specProfile));
+  const hostChrome = start("host Chrome", chromeExecutable, chromeArgs(hostDebugPort, hostProfile));
+  const guestChrome = start("guest Chrome", chromeExecutable, chromeArgs(guestDebugPort, guestProfile));
+  const specChrome = start("spec Chrome", chromeExecutable, chromeArgs(specDebugPort, specProfile));
   await Promise.all([
     waitForHttp(`http://${host}:${hostDebugPort}/json/version`, hostChrome),
     waitForHttp(`http://${host}:${guestDebugPort}/json/version`, guestChrome),
@@ -227,6 +228,50 @@ async function main() {
     console.log("[2] pages navigated");
     await waitFor(hostPage, `document.querySelector('.mode-card[data-mode="net"]') !== null`, "menu");
     console.log("[3] menu ready");
+
+    // ---------- 人机先手禁手：开关、玩家拒绝、AI 合法兜底 ----------
+    const renjuAudit = await hostPage.evaluate(js(
+      `(() => {
+        document.querySelector('.mode-card[data-mode="ai"]').click();
+        const toggle = document.querySelector('#ai-renju');
+        const defaultOn = toggle.classList.contains('on') && toggle.getAttribute('aria-pressed') === 'true';
+        toggle.click();
+        const toggledOff = !toggle.classList.contains('on') && toggle.getAttribute('aria-pressed') === 'false';
+        startAiGame('easy', core.BLACK, false);
+        const freeMode = !core.getAiRenju();
+        startAiGame('easy', core.BLACK, true);
+        const renjuMode = core.getAiRenju();
+
+        const at = (row, column) => row * core.SIZE + column;
+        game.board = Array(core.CELL_COUNT).fill(core.EMPTY);
+        for (const index of [at(7, 6), at(7, 8), at(6, 7), at(8, 7)]) game.board[index] = core.BLACK;
+        game.history = [];
+        game.turn = core.BLACK;
+        const forbidden = at(7, 7);
+        const moved = applyMove(forbidden, core.BLACK);
+        const fallback = core.aiMove(game.board, core.BLACK, 'easy');
+        return {
+          defaultOn,
+          toggledOff,
+          freeMode,
+          renjuMode,
+          moved,
+          historyLength: game.history.length,
+          fallback,
+          fallbackLegal: fallback !== forbidden && core.isMoveLegal(game.board, fallback, core.BLACK)
+        };
+      })()`
+    ));
+    assert.equal(renjuAudit.defaultOn, true, "renju toggle defaults on");
+    assert.equal(renjuAudit.toggledOff, true, "renju toggle can be disabled");
+    assert.equal(renjuAudit.freeMode, true, "free mode reaches the core");
+    assert.equal(renjuAudit.renjuMode, true, "renju mode reaches the core");
+    assert.equal(renjuAudit.moved, false, "player black forbidden move is rejected");
+    assert.equal(renjuAudit.historyLength, 0, "rejected move does not enter history");
+    assert.equal(renjuAudit.fallbackLegal, true, "AI replaces a forbidden move with a legal move");
+    await navigate(hostPage, gameUrl);
+    console.log("[3.5] AI renju toggle passed");
+
     const enterNet = (page, nickname) => page.evaluate(js(
       `(() => {
         document.querySelector('.mode-card[data-mode="net"]').click();
@@ -431,10 +476,12 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(error);
   console.error("process outputs:\n" + processes.map((record) => (
     `--- ${record.label} ---\n${record.output}`
   )).join("\n"));
+  for (const record of [...processes].reverse()) await stop(record);
+  if (taskDirectory) rmSync(taskDirectory, { recursive: true, force: true });
   process.exitCode = 1;
 });
