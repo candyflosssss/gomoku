@@ -61,6 +61,8 @@
     }
     header.top .brand { font-size: 15px; letter-spacing: 2px; color: var(--text-dim); }
     header.top .brand b { color: var(--accent); font-weight: 700; }
+    .account-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+    .account-name { color: var(--text-dim); font-size: 12px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .back-link {
       font-size: 13px;
       color: var(--text-dim);
@@ -378,6 +380,9 @@
     .toast.error { border-color: var(--danger); color: #ffd9d4; }
 
     @media (max-width: 460px) {
+      header.top { align-items: flex-start; }
+      .account-actions { flex-wrap: wrap; }
+      .account-name { max-width: 90px; }
       .mode-cards { grid-template-columns: 1fr; }
       #screen-menu h1 { font-size: 32px; letter-spacing: 8px; }
       .rps-buttons button { width: 72px; height: 72px; font-size: 32px; }
@@ -388,7 +393,12 @@
   <div id="app">
     <header class="top">
       <span class="brand">CandyMo <b>·</b> 五子棋</span>
-      <a class="back-link" href="/">返回首页</a>
+      <div class="account-actions">
+        <span class="account-name" id="account-name" hidden></span>
+        <button class="back-link" id="login-btn">登录 / 注册</button>
+        <button class="back-link" id="logout-btn" hidden>退出</button>
+        <a class="back-link" href="/">返回首页</a>
+      </div>
     </header>
 
     <!-- ============ 主菜单 ============ -->
@@ -439,8 +449,8 @@
       <section id="net-panel" class="card" hidden>
         <div class="panel-head"><span>联机对战</span><button class="close" data-close="net">×</button></div>
         <div class="field">
-          <label>我的昵称</label>
-          <input type="text" id="net-nickname" maxlength="16" placeholder="输入昵称，最多 16 字" autocomplete="nickname">
+          <label>账号昵称</label>
+          <input type="text" id="net-nickname" maxlength="16" placeholder="登录后自动读取" disabled>
         </div>
         <div class="tabs">
           <button class="on" data-tab="create">创建房间</button>
@@ -565,6 +575,7 @@
   </div>
 
   <script src="runtime-config.js"></script>
+  <script src="auth.js"></script>
   <script src="viewport-fit.js"></script>
   <script src="host-bridge.js"></script>
   <script src="gomoku-core.js"></script>
@@ -575,7 +586,25 @@
 
     const core = window.GomokuCore;
     const net = window.GomokuNet;
+    const auth = window.GomokuAuth;
     const $ = (id) => document.getElementById(id);
+
+    function accountNickname() {
+      return String(auth.profile?.nickname || "").trim().slice(0, 16);
+    }
+
+    function renderAccount(profile) {
+      $("account-name").hidden = !profile;
+      $("account-name").textContent = profile?.nickname || "";
+      $("login-btn").hidden = Boolean(profile);
+      $("logout-btn").hidden = !profile;
+      $("net-nickname").value = profile ? accountNickname() : "";
+    }
+
+    auth.subscribe(renderAccount);
+    $("login-btn").addEventListener("click", () => auth.login().catch((error) => toast(error.message, true)));
+    $("logout-btn").addEventListener("click", () => auth.logout());
+    window.addEventListener("gomoku-auth-error", (event) => toast(event.detail || "登录失败，请重试", true));
 
     const screens = {
       menu: $("screen-menu"),
@@ -1065,7 +1094,7 @@
       const state = room.state;
 
       hideResult();
-      rpsSubmitted = false;
+      rpsSubmitted = Boolean(state?.rpsMine || state?.rpsChosen?.includes(net.myId));
       result.hidden = true;
       choose.hidden = true;
       countdown.hidden = true;
@@ -1275,13 +1304,19 @@
 
     // 主菜单模式选择
     document.querySelectorAll(".mode-card").forEach((card) => {
-      card.addEventListener("click", () => {
+      card.addEventListener("click", async () => {
         const mode = card.dataset.mode;
+        if (mode === "net" && !auth.isAuthenticated) {
+          try {
+            await auth.login();
+          } catch (error) {
+            toast(error.message, true);
+          }
+          return;
+        }
         $("ai-panel").hidden = mode !== "ai";
         $("net-panel").hidden = mode !== "net";
-        if (mode === "net" && !$("net-nickname").value) {
-          $("net-nickname").value = localStorage.getItem("gomoku_nickname") || "";
-        }
+        if (mode === "net") $("net-nickname").value = accountNickname();
       });
     });
 
@@ -1348,8 +1383,7 @@
     // 创建房间
     $("create-submit").addEventListener("click", async () => {
       const nickname = $("net-nickname").value.trim();
-      if (!nickname) return toast("请先输入昵称", true);
-      localStorage.setItem("gomoku_nickname", nickname);
+      if (!auth.isAuthenticated) return auth.login();
       try {
         await net.createRoom({
           nickname,
@@ -1375,9 +1409,8 @@
     $("join-submit").addEventListener("click", async () => {
       const nickname = $("net-nickname").value.trim();
       const code = $("join-code").value.trim().toUpperCase();
-      if (!nickname) return toast("请先输入昵称", true);
+      if (!auth.isAuthenticated) return auth.login();
       if (!/^[A-Z0-9]{6}$/.test(code)) return toast("请输入 6 位房间码", true);
-      localStorage.setItem("gomoku_nickname", nickname);
       try {
         await net.joinRoom({
           code,
@@ -1422,7 +1455,7 @@
           `;
           row.querySelector("button").addEventListener("click", async () => {
             const nickname = $("net-nickname").value.trim();
-            if (!nickname) return toast("请先输入昵称", true);
+            if (!auth.isAuthenticated) return auth.login();
             if (room.hasPassword) {
               const password = window.prompt(`房间 ${room.code} 需要密码：`, "");
               if (password === null) return;
@@ -1441,7 +1474,6 @@
     $("public-refresh").addEventListener("click", refreshPublic);
 
     async function joinByCode(code, nickname, password) {
-      localStorage.setItem("gomoku_nickname", nickname);
       try {
         await net.joinRoom({ code, nickname, password });
         game.mode = "net";
@@ -1565,6 +1597,10 @@
 
     // 通过 ?room= 邀请链接自动加入房间（对未加入过该房间的新访客同样有效）
     async function autoJoinByLink(roomCode, savedNickname) {
+      if (!auth.isAuthenticated) {
+        await auth.login();
+        return;
+      }
       // 1) 本机之前加入过同一房间且房间仍在 → 恢复会话（保持玩家身份）
       if (net.resume(roomCode)) {
         game.mode = "net";
@@ -1610,9 +1646,10 @@
 
     async function boot() {
       resizeCanvas();
+      await auth.ready;
       const params = new URLSearchParams(location.search);
       const roomCode = (params.get("room") || "").trim().toUpperCase();
-      const savedNickname = localStorage.getItem("gomoku_nickname") || "";
+      const savedNickname = accountNickname();
       $("net-nickname").value = savedNickname;
       if (roomCode) {
         await autoJoinByLink(roomCode, savedNickname);

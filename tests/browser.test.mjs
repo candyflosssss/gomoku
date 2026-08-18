@@ -166,7 +166,7 @@ async function main() {
   ]);
   const origin = `http://${host}:${staticPort}`;
   const apiBase = `http://${host}:${roomPort}/api/gomoku`;
-  const gameUrl = `${origin}/index.html?api=${encodeURIComponent(apiBase)}`;
+  const gameUrl = `${origin}/index.html?testAuth=disabled&api=${encodeURIComponent(apiBase)}`;
 
   const staticServer = start("static server", "python3", [
     "-m", "http.server", String(staticPort), "--bind", host, "--directory", join(repository, "web")
@@ -176,7 +176,9 @@ async function main() {
       ...process.env,
       GOMOKU_HOST: host,
       GOMOKU_PORT: String(roomPort),
-      GOMOKU_ALLOWED_ORIGIN: origin
+      GOMOKU_ALLOWED_ORIGIN: origin,
+      GOMOKU_AUTH_REQUIRED: "false",
+      GOMOKU_VIEW_RATE_LIMIT: "10000"
     }
   });
   await Promise.all([
@@ -394,6 +396,7 @@ async function main() {
         const codeInput = document.querySelector('#join-code');
         codeInput.value = ${JSON.stringify(code)};
         codeInput.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('#join-password').value = 'abc123';
         document.querySelector('#join-spectate').click();
         document.querySelector('#join-submit').click();
         return true;

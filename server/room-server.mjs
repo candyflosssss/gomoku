@@ -14,6 +14,7 @@
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { authenticateLogtoRequest, logtoAuthConfig } from "./logto-auth.mjs";
 
 const HOST = process.env.GOMOKU_HOST || "127.0.0.1";
 const PORT = Number.parseInt(process.env.GOMOKU_PORT || "8798", 10) || 8798;
@@ -38,6 +39,7 @@ const LOBBY_IDLE_MS = 20 * 60_000;
 const PLAYING_IDLE_MS = 2 * 60 * 60_000;
 const EMPTY_ROOM_MS = 60_000;
 const MAX_PUBLIC_LIST = 30;
+const VIEW_RATE_LIMIT = Number.parseInt(process.env.GOMOKU_VIEW_RATE_LIMIT || "120", 10) || 120;
 
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ROOM_CODE_LENGTH = 6;
@@ -50,7 +52,8 @@ const RPS_BEATS = Object.freeze({ rock: "scissors", scissors: "paper", paper: "r
 const rooms = new Map();
 const rateBuckets = new Map();
 
-function clientKey(req) {
+function clientKey(req, identity = null) {
+  if (identity?.sub) return `account:${identity.sub}`;
   return String(req.socket.remoteAddress || "unknown");
 }
 
@@ -83,8 +86,13 @@ function send(res, status, payload, req) {
   if (origin && (ALLOWED_ORIGINS.has(origin) || ALLOWED_ORIGINS.has("*"))) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Gomoku-Id-Token");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  }
+  if (status === 204) {
+    res.writeHead(204);
+    res.end();
+    return;
   }
   const body = JSON.stringify(payload);
   res.writeHead(status, {
@@ -151,22 +159,24 @@ function roomCode() {
   throw new HttpError(503, "ROOM_EXHAUSTED", "暂时无法生成房间码，请重试");
 }
 
-function createPlayer(nickname, isHost = false) {
+function createPlayer(nickname, isHost = false, subject = null) {
   return {
     id: randomUUID(),
     token: randomBytes(24).toString("base64url"),
     nickname: cleanNickname(nickname),
+    subject,
     isHost,
     ready: false,
     joinedAt: Date.now()
   };
 }
 
-function createSpectator(nickname) {
+function createSpectator(nickname, subject = null) {
   return {
     id: randomUUID(),
     token: randomBytes(24).toString("base64url"),
     nickname: cleanNickname(nickname),
+    subject,
     joinedAt: Date.now()
   };
 }
@@ -194,16 +204,16 @@ function freshMatchState(now) {
   };
 }
 
-function createRoom(body, req) {
-  enforceRate(`${clientKey(req)}:create`, 5, 60_000, "建房");
+function createRoom(body, req, identity) {
+  enforceRate(`${clientKey(req, identity)}:create`, 5, 60_000, "建房");
   if (rooms.size >= 400) {
     throw new HttpError(503, "ROOM_LIMIT_REACHED", "当前房间较多，请稍后再试");
   }
-  const nickname = cleanNickname(body.nickname);
+  const nickname = cleanNickname(identity?.nickname || body.nickname);
   if (!nickname) throw new HttpError(400, "NICKNAME_REQUIRED", "请输入昵称");
   const visibility = body.visibility === "public" ? "public" : "private";
   const password = cleanPassword(body.password);
-  const host = createPlayer(nickname, true);
+  const host = createPlayer(nickname, true, identity?.sub || null);
   const code = roomCode();
   const room = {
     code,
@@ -233,14 +243,24 @@ function getRoom(code) {
   return room;
 }
 
-function authenticate(room, body) {
+function authenticate(room, body, identity) {
   const playerId = String(body.playerId || "");
   const token = String(body.token || "");
   const player = room.players.get(playerId) || room.spectators.get(playerId);
   if (!player || player.token !== token) {
     throw new HttpError(401, "AUTH_FAILED", "房间凭据无效，请重新加入");
   }
+  if (identity && player.subject !== identity.sub) {
+    throw new HttpError(401, "ACCOUNT_MISMATCH", "该房间凭据不属于当前登录账号");
+  }
   return player;
+}
+
+function ensureAccountNotInRoom(room, identity) {
+  if (!identity) return;
+  const alreadyJoined = [...room.players.values(), ...room.spectators.values()]
+    .some((member) => member.subject === identity.sub);
+  if (alreadyJoined) throw new HttpError(409, "ACCOUNT_ALREADY_JOINED", "当前账号已经加入该房间");
 }
 
 function bump(room) {
@@ -499,8 +519,8 @@ function publicListEntry(room) {
   };
 }
 
-function listPublicRooms(req) {
-  enforceRate(`${clientKey(req)}:list`, 60, 60_000, "刷新房间列表");
+function listPublicRooms(req, identity) {
+  enforceRate(`${clientKey(req, identity)}:list`, 60, 60_000, "刷新房间列表");
   const now = Date.now();
   const entries = [...rooms.values()]
     .filter((room) => room.visibility === "public" && room.players.size > 0)
@@ -636,15 +656,22 @@ async function route(req, res) {
     return;
   }
 
+  let identity = null;
+  try {
+    identity = await authenticateLogtoRequest(req);
+  } catch {
+    throw new HttpError(401, "LOGIN_REQUIRED", "请先登录后再使用联机对战");
+  }
+
   if (url.pathname === `${API_PREFIX}/rooms` && req.method === "POST") {
     const body = await readBody(req);
-    const created = createRoom(body, req);
+    const created = createRoom(body, req, identity);
     send(res, 201, created, req);
     return;
   }
 
   if (url.pathname === `${API_PREFIX}/rooms/public` && req.method === "GET") {
-    send(res, 200, listPublicRooms(req), req);
+    send(res, 200, listPublicRooms(req, identity), req);
     return;
   }
 
@@ -657,7 +684,7 @@ async function route(req, res) {
   refreshStatus(room);
 
   if (!action && req.method === "GET") {
-    enforceRate(`${clientKey(req)}:view`, 120, 60_000, "查看房间");
+    enforceRate(`${clientKey(req, identity)}:view`, VIEW_RATE_LIMIT, 60_000, "查看房间");
     send(res, 200, { room: publicRoom(room) }, req);
     return;
   }
@@ -666,15 +693,19 @@ async function route(req, res) {
   const body = await readBody(req);
 
   if (action === "join") {
-    enforceRate(`${clientKey(req)}:join`, 30, 60_000, "加入房间");
+    enforceRate(`${clientKey(req, identity)}:join`, 30, 60_000, "加入房间");
     const asSpectator = Boolean(body.asSpectator);
+    ensureAccountNotInRoom(room, identity);
+    if (room.passwordHash && hashPassword(cleanPassword(body.password)) !== room.passwordHash) {
+      throw new HttpError(403, "WRONG_PASSWORD", "房间密码不正确");
+    }
     if (asSpectator) {
       if (room.spectators.size >= SPECTATOR_CAPACITY) {
         throw new HttpError(409, "ROOM_FULL", "观战位已满");
       }
-      const nickname = cleanNickname(body.nickname);
+      const nickname = cleanNickname(identity?.nickname || body.nickname);
       if (!nickname) throw new HttpError(400, "NICKNAME_REQUIRED", "请输入昵称");
-      const spectator = createSpectator(nickname);
+      const spectator = createSpectator(nickname, identity?.sub || null);
       room.spectators.set(spectator.id, spectator);
       bump(room);
       send(res, 201, { room: publicRoom(room), playerId: spectator.id, token: spectator.token, role: "spectator" }, req);
@@ -686,16 +717,13 @@ async function route(req, res) {
     if (room.players.size >= PLAYER_CAPACITY) {
       throw new HttpError(409, "ROOM_FULL", "玩家位已满，可尝试观战");
     }
-    if (room.passwordHash && hashPassword(cleanPassword(body.password)) !== room.passwordHash) {
-      throw new HttpError(403, "WRONG_PASSWORD", "房间密码不正确");
-    }
-    const nickname = cleanNickname(body.nickname);
+    const nickname = cleanNickname(identity?.nickname || body.nickname);
     if (!nickname) throw new HttpError(400, "NICKNAME_REQUIRED", "请输入昵称");
     const duplicate = [...room.players.values()].some(
       (item) => item.nickname.toLocaleLowerCase() === nickname.toLocaleLowerCase()
     );
     if (duplicate) throw new HttpError(409, "NICKNAME_TAKEN", "房间内已有同名玩家");
-    const player = createPlayer(nickname, room.players.size === 0);
+    const player = createPlayer(nickname, room.players.size === 0, identity?.sub || null);
     if (room.players.size === 0) room.hostId = player.id;
     room.players.set(player.id, player);
     bump(room);
@@ -703,7 +731,7 @@ async function route(req, res) {
     return;
   }
 
-  const player = authenticate(room, body);
+  const player = authenticate(room, body, identity);
 
   if (action === "heartbeat") {
     bump(room);
@@ -809,6 +837,7 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Gomoku room server listening on http://${HOST}:${PORT}${API_PREFIX}`);
+  console.log(`Gomoku Logto authentication ${logtoAuthConfig.required ? "required" : "disabled"}`);
 });
 
 setInterval(sweepRooms, 60_000).unref();

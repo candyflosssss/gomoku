@@ -10,6 +10,10 @@ Environment=NODE_ENV=production
 Environment=GOMOKU_HOST=127.0.0.1
 Environment=GOMOKU_PORT=8788
 Environment=GOMOKU_ALLOWED_ORIGIN=https://gomoku.candymo.com
+Environment=GOMOKU_AUTH_REQUIRED=true
+Environment=GOMOKU_LOGTO_ISSUER=https://auth.candymo.com/oidc
+Environment=GOMOKU_LOGTO_AUDIENCE=https://gomoku.candymo.com/api
+Environment=GOMOKU_LOGTO_CLIENT_ID=pt1vgzollhjzsfml54uz9
 ExecStart=/usr/bin/node /home/mosaki/Projects/gomoku/server/room-server.mjs
 Restart=on-failure
 RestartSec=3s
