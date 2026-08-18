@@ -1,6 +1,6 @@
 # Gomoku
 
-可独立开发、部署或嵌入其他网站的五子棋。支持三档人机 AI、双人联机、观战、剪刀石头布决定先手，以及 WebRTC DataChannel 直连与服务器通道回退。
+可独立开发、部署或嵌入其他网站的五子棋。人机对战可匿名使用；联机、观战和房间列表需要通过 Logto 登录。支持剪刀石头布决定先手、WebRTC DataChannel 直连与服务器通道回退。
 
 ## 本地运行
 
@@ -24,6 +24,10 @@ python3 -m http.server 4173 --bind 127.0.0.1 --directory web
 浏览器运行时配置位于 `web/runtime-config.js`：
 
 - `apiBase`：房间 API 地址，默认使用同源 `/api/gomoku`
+- `logto.endpoint`：Logto 公共地址
+- `logto.clientId`：Logto SPA Client ID（公开元数据，不是密钥）
+- `logto.resource`：房间 API Resource indicator
+- `logto.redirectUri`：登录回调地址，必须登记在 Logto SPA 应用中
 - `iceServers`：WebRTC STUN/TURN 配置
 - `parentOrigin`：允许向嵌入页面发送生命周期事件的父页面来源；留空时不发送
 
@@ -32,8 +36,14 @@ python3 -m http.server 4173 --bind 127.0.0.1 --directory web
 - `GOMOKU_HOST`，默认 `127.0.0.1`
 - `GOMOKU_PORT`，默认 `8798`
 - `GOMOKU_ALLOWED_ORIGIN`，逗号分隔的跨域来源白名单
+- `GOMOKU_AUTH_REQUIRED`，默认 `true`；仅自动化测试可设为 `false`
+- `GOMOKU_LOGTO_ISSUER`、`GOMOKU_LOGTO_AUDIENCE`、`GOMOKU_LOGTO_CLIENT_ID`
+- `GOMOKU_LOGTO_JWKS_URI`，可选；默认由 Issuer 推导
+- `GOMOKU_VIEW_RATE_LIMIT`，单个登录账号每分钟读取房间快照的上限，默认 `120`
 
-URL 参数 `api` 可临时覆盖 `apiBase`，便于预览和第三方集成。
+URL 参数 `api` 仅可在同源页面或 localhost 开发环境覆盖 `apiBase`。
+
+前端采用 Authorization Code + PKCE，不需要也不允许配置 Client Secret。登录令牌保存在当前标签页的 `sessionStorage`；仓库中只能提交上述公开元数据，不应提交管理令牌、用户令牌、数据库转储、`.env` 或任何 Secret。
 
 ## 嵌入接口
 

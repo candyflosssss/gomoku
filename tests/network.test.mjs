@@ -193,7 +193,14 @@ async function startServer() {
     cwd: repository,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, GOMOKU_HOST: HOST_IP, GOMOKU_PORT: String(port), GOMOKU_ALLOWED_ORIGIN: "*" }
+    env: {
+      ...process.env,
+      GOMOKU_HOST: HOST_IP,
+      GOMOKU_PORT: String(port),
+      GOMOKU_ALLOWED_ORIGIN: "*",
+      GOMOKU_AUTH_REQUIRED: "false",
+      GOMOKU_VIEW_RATE_LIMIT: "10000"
+    }
   });
   let output = "";
   roomServer.stdout.on("data", (chunk) => { output += chunk; });
@@ -283,8 +290,12 @@ async function main() {
     assert.equal(guest.role, "player");
     await waitFor("guest sees two players", () => (guest.snapshot?.players?.length === 2 ? true : null));
 
-    // ---- 观战加入 ----
-    await spectator.joinRoom({ code, nickname: "观众", asSpectator: true });
+    // ---- 密码房观战同样必须校验密码 ----
+    await assert.rejects(
+      spectator.joinRoom({ code, nickname: "观众", asSpectator: true }),
+      /密码/
+    );
+    await spectator.joinRoom({ code, nickname: "观众", password: "abc123", asSpectator: true });
     assert.equal(spectator.role, "spectator");
     await waitFor("spectator listed", () => (spectator.snapshot?.spectators?.length === 1 ? true : null));
 
@@ -394,13 +405,32 @@ async function main() {
     assert.equal(fallbackGuestClient.state.moveCount, 2);
     console.log("[9] server fallback moves work without P2P");
 
-    console.log("Gomoku net integration passed: full room flow + P2P moves + spectator + rematch + resign + server fallback");
+    // ---- 离开后复用同一客户端：新房间仍能同步成员、准备和猜拳 ----
+    await Promise.all([hostClient.leave(), guest.leave(), spectator.leave()]);
+    await hostClient.createRoom({ nickname: "复用主机", visibility: "private" });
+    const reusedCode = hostClient.code;
+    await guest.joinRoom({ code: reusedCode, nickname: "复用客人" });
+    await waitFor("reused host sees guest", () => (
+      hostClient.snapshot?.players?.length === 2 ? true : null
+    ));
+    await Promise.all([hostClient.setReady(true), guest.setReady(true)]);
+    await waitFor("reused room ready", () => (
+      hostClient.snapshot?.players?.every((player) => player.ready) ? true : null
+    ));
+    await hostClient.startMatch();
+    await waitFor("reused room rps", () => (hostClient.status === "rps" ? true : null), 10_000);
+    await Promise.all([hostClient.submitRps("rock"), guest.submitRps("scissors")]);
+    await waitFor("reused room playing", () => (hostClient.status === "playing" ? true : null), 10_000);
+    assert.equal(hostClient.state.blackId, hostClient.myId);
+    console.log("[10] reused clients synchronized join, ready, and RPS state");
+
+    console.log("Gomoku net integration passed: full room flow + P2P + reuse-after-leave regression");
     process.exitCode = 0;
   } finally {
     // 先让所有客户端离开，停止轮询/信令，再关服务
     for (const client of [hostClient, guest, spectator, fallbackHostClient, fallbackGuestClient]) {
       try {
-        client.leave();
+        await client.leave();
       } catch {
         // 忽略
       }

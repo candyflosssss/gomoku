@@ -12,7 +12,12 @@
 
   const config = window.GOMOK_CONFIG || {};
   const queryApi = new URLSearchParams(location.search).get("api");
-  const apiBase = String(queryApi || config.apiBase || "/api/gomoku")
+  const queryApiUrl = queryApi ? new URL(queryApi, location.origin) : null;
+  const queryApiAllowed = queryApiUrl && (
+    queryApiUrl.origin === location.origin
+    || ["localhost", "127.0.0.1", "::1"].includes(location.hostname)
+  );
+  const apiBase = String((queryApiAllowed ? queryApiUrl.href : "") || config.apiBase || "/api/gomoku")
     .replace(/\/+$/, "");
   const ICE_SERVERS = Array.isArray(config.iceServers) ? config.iceServers : [
     { urls: "stun:stun.cloudflare.com:3478" },
@@ -27,6 +32,8 @@
   let session = null; // { code, playerId, token, role }
   let snapshot = null; // 最新房间快照
   let disposed = false;
+  let sessionEpoch = 0;
+  let pollInFlight = false;
 
   const snapshotCallbacks = new Set();
   const statusCallbacks = new Set();
@@ -64,9 +71,17 @@
   }
 
   async function request(path, options = {}) {
+    const { timeoutMs = 15_000, ...fetchOptions } = options;
+    const timeoutSignal = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined;
+    const authHeaders = window.GomokuAuth
+      ? await window.GomokuAuth.getAuthHeaders()
+      : {};
     const response = await fetch(`${apiBase}${path}`, {
-      ...options,
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+      ...fetchOptions,
+      signal: fetchOptions.signal || timeoutSignal,
+      headers: { "Content-Type": "application/json", ...authHeaders, ...(options.headers || {}) }
     });
     let payload = {};
     try {
@@ -113,9 +128,18 @@
   }
 
   function applySnapshot(nextRoom) {
-    if (!nextRoom) return;
+    if (!nextRoom) return false;
+    if (snapshot?.code === nextRoom.code) {
+      const currentRevision = Number.isInteger(snapshot.revision) ? snapshot.revision : -1;
+      const nextRevision = Number.isInteger(nextRoom.revision) ? nextRoom.revision : -1;
+      if (nextRevision < currentRevision) return false;
+      const currentStateVersion = Number.isInteger(snapshot.state?.version) ? snapshot.state.version : -1;
+      const nextStateVersion = Number.isInteger(nextRoom.state?.version) ? nextRoom.state.version : -1;
+      if (nextRevision === currentRevision && nextStateVersion < currentStateVersion) return false;
+    }
     snapshot = nextRoom;
     notifySnapshot();
+    return true;
   }
 
   // ---- P2P ----
@@ -166,13 +190,16 @@
 
   async function pollSignals() {
     if (signaling || disposed || !session || peerStatus === "direct") return;
+    const epoch = sessionEpoch;
     signaling = true;
-    while (!disposed && session && peerStatus !== "direct" && roomAlive()) {
+    while (epoch === sessionEpoch && !disposed && session && peerStatus !== "direct" && roomAlive()) {
       try {
         const payload = await request(`/rooms/${encodeURIComponent(session.code)}/signal`, {
           method: "POST",
-          body: JSON.stringify(authBody({}))
+          body: JSON.stringify(authBody({})),
+          timeoutMs: 30_000
         });
+        if (epoch !== sessionEpoch) break;
         for (const item of payload.signals || []) await handleSignal(item);
       } catch (error) {
         if (!disposed) console.warn("Gomoku P2P signaling retry", error);
@@ -414,21 +441,28 @@
     return Boolean(session && snapshot && !disposed);
   }
 
+  function activateSession(nextSession, nextRoom = null) {
+    sessionEpoch += 1;
+    disposed = false;
+    pollInFlight = false;
+    session = nextSession;
+    snapshot = null;
+    persistSession();
+    if (nextRoom) applySnapshot(nextRoom);
+    startPolling();
+  }
+
   async function createRoom({ nickname, visibility, password }) {
     const payload = await request("/rooms", {
       method: "POST",
       body: JSON.stringify({ nickname, visibility, password })
     });
-    session = {
+    activateSession({
       code: payload.room.code,
       playerId: payload.playerId,
       token: payload.token,
       role: "player"
-    };
-    persistSession();
-    snapshot = payload.room;
-    startPolling();
-    notifySnapshot();
+    }, payload.room);
     return snapshot;
   }
 
@@ -437,16 +471,12 @@
       method: "POST",
       body: JSON.stringify({ nickname, password, asSpectator })
     });
-    session = {
+    activateSession({
       code: payload.room.code,
       playerId: payload.playerId,
       token: payload.token,
       role: payload.role || "player"
-    };
-    persistSession();
-    snapshot = payload.room;
-    startPolling();
-    notifySnapshot();
+    }, payload.room);
     return snapshot;
   }
 
@@ -519,7 +549,9 @@
   }
 
   function teardown() {
+    sessionEpoch += 1;
     disposed = true;
+    pollInFlight = false;
     window.clearTimeout(connectTimer);
     window.clearInterval(pollTimer);
     window.clearTimeout(heartbeatTimer);
@@ -548,26 +580,35 @@
   function startPolling() {
     window.clearInterval(pollTimer);
     window.clearTimeout(heartbeatTimer);
+    poll().catch(() => {});
     pollTimer = window.setInterval(poll, POLL_MS);
     heartbeatTimer = window.setTimeout(heartbeat, HEARTBEAT_MS);
   }
 
   async function poll() {
-    if (!session || disposed) return;
+    if (!session || disposed || pollInFlight) return;
+    const epoch = sessionEpoch;
+    const code = session.code;
+    pollInFlight = true;
     try {
-      const payload = await request(`/rooms/${encodeURIComponent(session.code)}`);
+      const payload = await request(`/rooms/${encodeURIComponent(code)}`);
+      if (epoch !== sessionEpoch || code !== session?.code) return;
       applySnapshot(payload.room);
       ensureP2P().catch((error) => console.warn("Gomoku P2P setup failed", error));
     } catch (error) {
+      if (epoch !== sessionEpoch) return;
       if (error.code === "ROOM_NOT_FOUND") {
         // 房间已过期：清理本地会话并通知界面
         clearSession();
         snapshot = null;
         notifySnapshot();
-      } else if (error.code === "AUTH_FAILED") {
+      } else if (["AUTH_FAILED", "ACCOUNT_MISMATCH", "LOGIN_REQUIRED"].includes(error.code)) {
         clearSession();
+        snapshot = null;
         notifySnapshot();
       }
+    } finally {
+      if (epoch === sessionEpoch) pollInFlight = false;
     }
   }
 
@@ -589,8 +630,12 @@
     try {
       const stored = JSON.parse(localStorage.getItem(sessionKey(code)) || "null");
       if (!stored?.playerId || !stored?.token || !stored?.code) return false;
-      session = { code: stored.code, playerId: stored.playerId, token: stored.token, role: stored.role || "player" };
-      startPolling();
+      activateSession({
+        code: stored.code,
+        playerId: stored.playerId,
+        token: stored.token,
+        role: stored.role || "player"
+      });
       return true;
     } catch {
       return false;

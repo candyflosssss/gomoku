@@ -1,4 +1,11 @@
 dist/
 .env
+.env.*
+!.env.example
+*.dump
+*.key
+*.p12
+*.pfx
+*.pem
 .gomoku-p2p-*/
 *.log
