@@ -273,7 +273,7 @@
     return { score: bestScore, move: bestMove };
   }
 
-  function aiMove(board, aiMark, level) {
+  function chooseAiMove(board, aiMark, level) {
     if (!board.some((value) => value)) {
       return Math.floor(CELL_COUNT / 2);
     }
@@ -320,6 +320,22 @@
       if (info && info.index >= 0 && board[info.index] === EMPTY) return info.index;
     }
     return rankedMoves(board, aiMark, 1)[0];
+  }
+
+  function aiMove(board, aiMark, level) {
+    const preferred = chooseAiMove(board, aiMark, level);
+    const rules = window.GomokuRules;
+    if (!rules || rules.getMode() !== "renju" || aiMark !== BLACK) return preferred;
+    if (preferred >= 0 && preferred < CELL_COUNT && rules.isMoveLegal(board, preferred, aiMark)) {
+      return preferred;
+    }
+    for (const index of rankedMoves(board, aiMark, CELL_COUNT)) {
+      if (rules.isMoveLegal(board, index, aiMark)) return index;
+    }
+    for (let index = 0; index < CELL_COUNT; index += 1) {
+      if (rules.isMoveLegal(board, index, aiMark)) return index;
+    }
+    return -1;
   }
 
   window.GomokuCore = Object.freeze({
@@ -2248,4 +2264,3 @@ window.GomokuRules.setMode(AI_CONSIDER_FORBIDDEN ? "renju" : "free");
     }
   }));
 })();
-

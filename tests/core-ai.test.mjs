@@ -78,7 +78,24 @@ const at = (row, col) => row * SIZE + col;
   assert.ok(line && line.length >= 5, "public winAt should keep free-rule six-in-a-row win");
 }
 
-// 6. hard 性能上限：复杂中盘局面单步不超过 2200ms。
+// 6. 三档 AI 都遵守开关：自由规则可走长连取胜，禁手规则必须避开。
+{
+  const board = empty();
+  for (const col of [3, 4, 5, 7, 8]) board[at(7, col)] = BLACK;
+  board[at(7, 2)] = WHITE;
+  board[at(7, 9)] = WHITE;
+  const overline = at(7, 6);
+  for (const level of ["easy", "medium", "hard"]) {
+    core.setAiRenju(false);
+    assert.equal(core.aiMove(board, BLACK, level), overline, `${level} should take the free-rule win`);
+    core.setAiRenju(true);
+    const legalMove = core.aiMove(board, BLACK, level);
+    assert.notEqual(legalMove, overline, `${level} should avoid the overline`);
+    assert.equal(core.isMoveLegal(board, legalMove, BLACK), true, `${level} should return a legal move`);
+  }
+}
+
+// 7. hard 性能上限：复杂中盘局面单步不超过 2200ms。
 {
   const board = empty();
   board[at(7, 7)] = BLACK;
