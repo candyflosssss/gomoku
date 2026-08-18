@@ -8,7 +8,7 @@
     "rooms": "node server/room-server.mjs",
     "build": "node scripts/build.mjs",
     "check": "npm run check:core && npm run check:network",
-    "check:core": "node tests/core.test.mjs",
+    "check:core": "node tests/core.test.mjs && node tests/core-ai.test.mjs",
     "check:network": "node tests/network.test.mjs",
     "check:browser": "node tests/browser.test.mjs"
   },
