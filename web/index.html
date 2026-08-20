@@ -933,17 +933,91 @@
       }
     }
 
+    let aiWorker = null;
+    let aiWorkerFallbackTimer = 0;
+    let aiRequestId = 0;
+
+    function finishAiMove(index, requestId) {
+      if (requestId !== aiRequestId) return;
+      if (!game.over && game.turn === game.aiMark) applyMove(index, game.aiMark);
+      game.aiThinking = false;
+      game.busy = false;
+      renderGameTop();
+    }
+
+    function runAiInMainThread(requestId) {
+      window.setTimeout(() => {
+        if (requestId !== aiRequestId) return;
+        core.setAiRenju(game.renju);
+        const info = game.difficulty === "hard"
+          ? core.bestMoveInfo(game.board, game.aiMark, game.difficulty)
+          : null;
+        const index = info && info.index >= 0
+          ? info.index
+          : core.aiMove(game.board, game.aiMark, game.difficulty);
+        finishAiMove(index, requestId);
+      }, 160);
+    }
+
+    function ensureAiWorker() {
+      if (aiWorker) return aiWorker;
+      try {
+        aiWorker = new Worker("ai-worker.js");
+        aiWorker.onmessage = (event) => {
+          const data = event.data || {};
+          if (data.requestId !== aiRequestId) return;
+          window.clearTimeout(aiWorkerFallbackTimer);
+          if (data.ok && data.index >= 0) {
+            finishAiMove(data.index, data.requestId);
+          } else {
+            aiWorker.terminate();
+            aiWorker = null;
+            runAiInMainThread(data.requestId);
+          }
+        };
+        aiWorker.onerror = () => {
+          window.clearTimeout(aiWorkerFallbackTimer);
+          if (aiWorker) aiWorker.terminate();
+          aiWorker = null;
+          runAiInMainThread(aiRequestId);
+        };
+      } catch (error) {
+        aiWorker = null;
+      }
+      return aiWorker;
+    }
+
     function scheduleAiMove() {
+      aiRequestId += 1;
+      const requestId = aiRequestId;
       game.aiThinking = true;
       game.busy = true;
       renderGameTop();
-      window.setTimeout(() => {
-        const index = core.aiMove(game.board, game.aiMark, game.difficulty);
-        applyMove(index, game.aiMark);
-        game.aiThinking = false;
-        game.busy = false;
-        renderGameTop();
-      }, 160);
+
+      if (game.difficulty !== "hard") {
+        runAiInMainThread(requestId);
+        return;
+      }
+
+      const worker = ensureAiWorker();
+      if (!worker) {
+        runAiInMainThread(requestId);
+        return;
+      }
+
+      aiWorkerFallbackTimer = window.setTimeout(() => {
+        if (requestId !== aiRequestId) return;
+        if (aiWorker) aiWorker.terminate();
+        aiWorker = null;
+        runAiInMainThread(requestId);
+      }, 10000);
+      worker.postMessage({
+        requestId,
+        board: game.board,
+        mark: game.aiMark,
+        level: game.difficulty,
+        renju: game.renju
+      });
     }
 
     function forbiddenName(reason) {
@@ -980,6 +1054,10 @@
         endAiGame(null, "board-full");
       }
       return true;
+    }
+
+    if (new URLSearchParams(location.search).get("testAuth") === "disabled") {
+      Object.assign(window, { core, game, startAiGame, applyMove });
     }
 
     function undoMove() {

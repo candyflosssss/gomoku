@@ -2,16 +2,46 @@
 // 覆盖 建房(公开+密码) → 密码校验 → 加入 → 准备 → 开局 → 剪刀石头布 → P2P 落子
 // → 五连胜负 → 观战同步 → 再来一局。
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 
 const repository = resolve(import.meta.dirname, "..");
+const nodeExecutable = process.platform === "win32" ? "node" : process.execPath;
 const host = "127.0.0.1";
 const chromeExecutable = process.env.GOMOKU_CHROME || "google-chrome";
 const processes = [];
 let taskDirectory = "";
+
+const staticServerScript = String.raw`
+const fs = require('node:fs');
+const http = require('node:http');
+const path = require('node:path');
+const host = process.env.GOMOKU_STATIC_HOST || '127.0.0.1';
+const port = Number(process.env.GOMOKU_STATIC_PORT || 4173);
+const root = path.resolve(process.env.GOMOKU_STATIC_ROOT || process.cwd());
+const origin = 'http://' + host + ':' + port;
+const types = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
+http.createServer((req, res) => {
+  const url = new URL(req.url || '/', origin);
+  let pathname;
+  try { pathname = decodeURIComponent(url.pathname); }
+  catch { res.writeHead(400).end('Bad request'); return; }
+  const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+  const candidate = path.resolve(root, relative);
+  if (candidate !== root && !candidate.startsWith(root + path.sep)) { res.writeHead(403).end('Forbidden'); return; }
+  try {
+    const file = fs.statSync(candidate).isDirectory() ? path.resolve(candidate, 'index.html') : candidate;
+    const stat = fs.statSync(file);
+    res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Content-Length': stat.size, 'Cache-Control': 'no-cache' });
+    fs.createReadStream(file).pipe(res);
+  } catch {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Not found');
+  }
+}).listen(port, host, () => console.log('static server listening on ' + origin));
+`;
 
 function sleep(milliseconds) {
   return new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
@@ -45,20 +75,42 @@ function start(label, command, args, options = {}) {
 
 async function stop(record) {
   if (record.child.exitCode !== null || !record.child.pid) return;
-  try {
-    process.kill(-record.child.pid, "SIGTERM");
-  } catch (error) {
-    if (error.code !== "ESRCH") throw error;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(record.child.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    try {
+      process.kill(-record.child.pid, "SIGTERM");
+    } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+    }
   }
   await Promise.race([
     new Promise((resolveExit) => record.child.once("exit", resolveExit)),
     sleep(1_500)
   ]);
   if (record.child.exitCode === null) {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/PID", String(record.child.pid), "/T", "/F"], { stdio: "ignore" });
+    } else {
+      try {
+        process.kill(-record.child.pid, "SIGKILL");
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+  }
+}
+
+async function cleanupTaskDirectory() {
+  if (!taskDirectory) return;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
-      process.kill(-record.child.pid, "SIGKILL");
+      rmSync(taskDirectory, { recursive: true, force: true });
+      return;
     } catch (error) {
-      if (error.code !== "ESRCH") throw error;
+      if (error.code !== "EBUSY") throw error;
+      if (attempt === 7) return;
+      await sleep(250);
     }
   }
 }
@@ -168,10 +220,15 @@ async function main() {
   const apiBase = `http://${host}:${roomPort}/api/gomoku`;
   const gameUrl = `${origin}/index.html?testAuth=disabled&api=${encodeURIComponent(apiBase)}`;
 
-  const staticServer = start("static server", "python3", [
-    "-m", "http.server", String(staticPort), "--bind", host, "--directory", join(repository, "web")
-  ]);
-  const roomServer = start("gomoku room server", process.execPath, ["server/room-server.mjs"], {
+  const staticServer = start("static server", nodeExecutable, ["-e", staticServerScript], {
+    env: {
+      ...process.env,
+      GOMOKU_STATIC_HOST: host,
+      GOMOKU_STATIC_PORT: String(staticPort),
+      GOMOKU_STATIC_ROOT: join(repository, "web")
+    }
+  });
+  const roomServer = start("gomoku room server", nodeExecutable, ["server/room-server.mjs"], {
     env: {
       ...process.env,
       GOMOKU_HOST: host,
@@ -273,6 +330,39 @@ async function main() {
     assert.equal(renjuAudit.fallbackLegal, true, "AI replaces a forbidden move with a legal move");
     await navigate(hostPage, gameUrl);
     console.log("[3.5] AI renju toggle passed");
+
+    const workerAudit = await hostPage.evaluate(js(
+      `new Promise((resolve) => {
+        const worker = new Worker('ai-worker.js');
+        const requestId = 42;
+        const timeout = setTimeout(() => {
+          worker.terminate();
+          resolve({ ok: false, timeout: true });
+        }, 5000);
+        worker.onmessage = (event) => {
+          clearTimeout(timeout);
+          worker.terminate();
+          resolve(event.data);
+        };
+        worker.onerror = () => {
+          clearTimeout(timeout);
+          worker.terminate();
+          resolve({ ok: false, error: 'worker-error' });
+        };
+        worker.postMessage({
+          requestId,
+          board: Array(core.CELL_COUNT).fill(core.EMPTY),
+          mark: core.BLACK,
+          level: 'hard',
+          renju: true
+        });
+      })`
+    ));
+    const workerExpectedCenter = await hostPage.evaluate(`Math.floor(core.CELL_COUNT / 2)`);
+    assert.equal(workerAudit.ok, true, `AI worker failed: ${JSON.stringify(workerAudit)}`);
+    assert.equal(workerAudit.requestId, 42, "AI worker preserves request id");
+    assert.equal(workerAudit.index, workerExpectedCenter, "AI worker opens at center");
+    console.log("[3.6] AI worker passed");
 
     const enterNet = (page, nickname) => page.evaluate(js(
       `(() => {
@@ -475,7 +565,7 @@ async function main() {
   } finally {
     for (const page of [hostPage, guestPage, specPage]) page.close();
     for (const record of [...processes].reverse()) await stop(record);
-    if (taskDirectory) rmSync(taskDirectory, { recursive: true, force: true });
+    await cleanupTaskDirectory();
   }
 }
 
@@ -485,6 +575,6 @@ main().catch(async (error) => {
     `--- ${record.label} ---\n${record.output}`
   )).join("\n"));
   for (const record of [...processes].reverse()) await stop(record);
-  if (taskDirectory) rmSync(taskDirectory, { recursive: true, force: true });
+  await cleanupTaskDirectory();
   process.exitCode = 1;
 });

@@ -3,8 +3,10 @@ import { spawn } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
+import { fileURLToPath } from "node:url";
 
-const repository = new URL("..", import.meta.url).pathname;
+const repository = fileURLToPath(new URL("..", import.meta.url));
+const nodeExecutable = process.execPath;
 const host = "127.0.0.1";
 const audience = "https://gomoku.test/api";
 const clientId = "gomoku-test-spa";
@@ -74,7 +76,7 @@ const jwksServer = createHttpServer((req, res) => {
 });
 await new Promise((resolve) => jwksServer.listen(jwksPort, host, resolve));
 
-const roomServer = spawn(process.execPath, ["server/room-server.mjs"], {
+const roomServer = spawn(nodeExecutable, ["server/room-server.mjs"], {
   cwd: repository,
   stdio: ["ignore", "pipe", "pipe"],
   env: {
