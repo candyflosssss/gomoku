@@ -5,13 +5,15 @@
 //   准备 → 开局 → 剪刀石头布定先手 → P2P 落子 → 五连胜负 → 观战同步 →
 //   再来一局 → 认输 → 服务器回退落子。
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
-const repository = new URL("..", import.meta.url).pathname;
+const repository = fileURLToPath(new URL("..", import.meta.url));
+const nodeExecutable = process.execPath;
 const HOST_IP = "127.0.0.1";
 const sleep = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
 
@@ -189,7 +191,7 @@ let port;
 
 async function startServer() {
   port = await freePort();
-  roomServer = spawn(process.execPath, ["server/room-server.mjs"], {
+  roomServer = spawn(nodeExecutable, ["server/room-server.mjs"], {
     cwd: repository,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -221,10 +223,14 @@ async function startServer() {
 
 async function stopServer() {
   if (!roomServer?.pid) return;
-  try {
-    process.kill(-roomServer.pid, "SIGTERM");
-  } catch {
-    // 已退出
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(roomServer.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    try {
+      process.kill(-roomServer.pid, "SIGTERM");
+    } catch {
+      // 已退出
+    }
   }
   await Promise.race([
     new Promise((resolveExit) => roomServer.once("exit", resolveExit)),
